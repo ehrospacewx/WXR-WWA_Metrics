@@ -1,0 +1,26 @@
+{
+ "source": "KSC Spaceport Weather Archive: MERLIN C-G and C-C",
+ "box": {
+  "lat_min": 27.9,
+  "lat_max": 28.95,
+  "lon_min": -81.15,
+  "lon_max": -80.2
+ },
+ "months": [
+  {
+   "month": "2026-10",
+   "file": "2026-10.json",
+   "updated": "2026-11-17T18:53:40+00:00",
+   "coverage": [
+    [
+     1790812800,
+     1793491200
+    ]
+   ],
+   "counts": {
+    "cg": 3016,
+    "cc": 404456
+   }
+  }
+ ]
+}
