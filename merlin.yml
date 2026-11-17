@@ -1,0 +1,41 @@
+name: Archive MERLIN lightning
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily, 0617Z: refreshes the last 3 days
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Start date UTC, e.g. 2026-10-01 (blank = last 3 days)"
+        required: false
+      end:
+        description: "End date UTC, exclusive, e.g. 2026-11-01 (blank = now)"
+        required: false
+permissions:
+  contents: write
+concurrency:
+  group: merlin-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch MERLIN CG and CC from the KSC Weather Archive
+        run: |
+          args=""
+          if [ -n "${{ github.event.inputs.start }}" ]; then args="$args --start ${{ github.event.inputs.start }}"; fi
+          if [ -n "${{ github.event.inputs.end }}" ]; then args="$args --end ${{ github.event.inputs.end }}"; fi
+          python scripts/fetch_merlin.py $args
+      - name: Commit archive
+        run: |
+          git config user.name "wwa-verification-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A data/merlin
+          if git diff --cached --quiet; then echo "No new lightning data"; exit 0; fi
+          git commit -m "MERLIN archive update"
+          git pull --rebase -X theirs origin main
+          git push origin HEAD:main

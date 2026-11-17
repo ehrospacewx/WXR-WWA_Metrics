@@ -939,8 +939,14 @@ function obsTime(v, v2){
   const p = Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s+"Z");
   return isNaN(p) ? null : p;
 }
+// decimal degrees or D:M:S with the sign on degrees (KSC archive C-C exports)
+function coordVal(v){
+  const s = String(v??"").trim();
+  if(s.includes(":")){ const neg=s.startsWith("-"); const [d,m,x] = s.replace(/^[+-]/,"").split(":").map(Number); const val=(d||0)+(m||0)/60+(x||0)/3600; return neg?-val:val; }
+  return s==="" ? NaN : +s;
+}
 const FIELDS = {
-  lightning:[["t","Time (UTC)",1],["d","Date (if separate)",0],["lat","Latitude",1],["lon","Longitude",1]],
+  lightning:[["t","Time (UTC)",1],["d","Date (if separate)",0],["lat","Latitude",1],["lon","Longitude",1],["typ","Type (CG / CC)",0]],
   wind:[["t","Time (UTC)",1],["d","Date (if separate)",0],["tw","Tower / station ID",0],["lat","Latitude",0],["lon","Longitude",0],["h","Height",0],["spd","Mean / steady speed",0],["gst","Peak / gust",0]]
 };
 function guessMap(kind, cols){
@@ -951,6 +957,7 @@ function guessMap(kind, cols){
   pick("d", /^date$/i);
   if(m.t==null && m.d!=null){ m.t=m.d; delete m.d; }
   pick("lat", /^lat|latitude/i); pick("lon", /^(lon|lng|long)|longitude/i);
+  if(kind==="lightning") pick("typ", /^(type|kind|class|stroke|flash_?type|cg_?cc)$/i);
   if(kind==="wind"){
     pick("gst", /gust|peak|^pk|max/i);
     pick("spd", /speed|spd|wspd|mean|avg|sustain|steady/i, /dir/i);
@@ -961,27 +968,30 @@ function guessMap(kind, cols){
 }
 const SPD = {kt:1, mph:0.868976, "m/s":1.943844, "km/h":0.539957};
 const HGT = {ft:1, m:3.28084};
-function buildData(kind, table, map, units){
+function buildData(kind, table, map, units, fname){
   const n = table.rows.length;
   const T=new Float64Array(n), LA=new Float32Array(n), LO=new Float32Array(n);
   let k=0, bad=0, far=0;
   if(kind==="lightning"){
+    const TY=new Uint8Array(n);
+    const ccRe=/^(cc|c2c|ic|cloud|intra|in-cloud|cloud[- ]to[- ]cloud|1)$/i;
+    const fileCC = /cloud[-_ ]?to[-_ ]?cloud|c2c|merlin[-_ ]?cc/i.test(fname||"") ? 1 : 0;
     for(const r of table.rows){
-      const t = obsTime(r[map.t], map.d!=null? r[map.d]:undefined), la=+r[map.lat], lo=+r[map.lon];
+      const t = map.d!=null ? obsTime(r[map.d], r[map.t]) : obsTime(r[map.t]), la=coordVal(r[map.lat]), lo=coordVal(r[map.lon]);
       if(t==null || !isFinite(la) || !isFinite(lo)){ bad++; continue; }
       if(distNM(la,lo,28.45,-80.62) > 60){ far++; continue; } // keep the Eastern Range neighbourhood only
-      T[k]=t; LA[k]=la; LO[k]=lo; k++;
+      T[k]=t; LA[k]=la; LO[k]=lo; TY[k]= map.typ!=null ? (ccRe.test(String(r[map.typ]).trim()) ? 1 : 0) : fileCC; k++;
     }
     const ord = [...Array(k).keys()].sort((a,b)=>T[a]-T[b]);
-    const t=new Float64Array(k), lat=new Float32Array(k), lon=new Float32Array(k);
-    ord.forEach((o,i)=>{ t[i]=T[o]; lat[i]=LA[o]; lon[i]=LO[o]; });
-    return {kind, n:k, bad, far, t, lat, lon, t0:k?t[0]:null, t1:k?t[k-1]:null};
+    const t=new Float64Array(k), lat=new Float32Array(k), lon=new Float32Array(k), typ=new Uint8Array(k);
+    ord.forEach((o,i)=>{ t[i]=T[o]; lat[i]=LA[o]; lon[i]=LO[o]; typ[i]=TY[o]; });
+    return {kind, n:k, bad, far, t, lat, lon, typ, t0:k?t[0]:null, t1:k?t[k-1]:null};
   }
   const H=new Float32Array(n).fill(NaN), S=new Float32Array(n).fill(NaN), G=new Float32Array(n).fill(NaN), TW=new Int32Array(n);
   const towers=[], tix=new Map();
   const sf = SPD[units.spd]||1, hf = HGT[units.h]||1;
   for(const r of table.rows){
-    const t = obsTime(r[map.t], map.d!=null? r[map.d]:undefined);
+    const t = map.d!=null ? obsTime(r[map.d], r[map.t]) : obsTime(r[map.t]);
     const s = map.spd!=null && r[map.spd]!=="" ? +r[map.spd]*sf : NaN, g = map.gst!=null && r[map.gst]!=="" ? +r[map.gst]*sf : NaN;
     if(t==null || (!isFinite(s) && !isFinite(g))){ bad++; continue; }
     const id = map.tw!=null ? String(r[map.tw]).trim() : "obs";
@@ -998,14 +1008,21 @@ function buildData(kind, table, map, units){
 }
 
 /* ---- series per location ---- */
-function strikeSeries(srcId, site){
+function strikeSeries(srcId, site, count="both"){
   const D = OD.get(srcId); if(!D || site.lat==null) return null;
-  const key = `L|${srcId}|${site.lat}|${site.lon}|${site.r}|${D.n}`;
+  const key = `L|${srcId}|${D.ver||0}|${site.lat}|${site.lon}|${site.r}|${count}|${D.n}`;
   if(CACHE.has(key)) return CACHE.get(key);
-  const t=[], d=[];
-  for(let i=0;i<D.n;i++){ const x = distNM(site.lat,site.lon,D.lat[i],D.lon[i]); if(x<=site.r){ t.push(D.t[i]); d.push(x); } }
-  const out = {t:Float64Array.from(t), d:Float32Array.from(d)}; CACHE.set(key,out); return out;
+  const want = count==="cg" ? 0 : count==="cc" ? 1 : -1;
+  const t=[], d=[], y=[];
+  for(let i=0;i<D.n;i++){
+    const ty = D.typ ? D.typ[i] : 0;
+    if(want>=0 && ty!==want) continue;
+    const x = distNM(site.lat,site.lon,D.lat[i],D.lon[i]); if(x<=site.r){ t.push(D.t[i]); d.push(x); y.push(ty); }
+  }
+  const out = {t:Float64Array.from(t), d:Float32Array.from(d), y:Uint8Array.from(y)}; CACHE.set(key,out); return out;
 }
+const typName = y => y===1 ? "CC" : "CG";
+function typCounts(S, i, j){ let cg=0, cc=0; for(let k=i;k<j;k++){ if(S.y[k]===1) cc++; else cg++; } return {cg, cc}; }
 function windSeries(srcId, area, metric){
   const D = OD.get(srcId); if(!D || !area) return null;
   const twList = (area.towers||"").split(/[\s,;]+/).filter(Boolean).map(x=>x.toUpperCase().replace(/^0+(?=\d)/,""));
@@ -1038,6 +1055,59 @@ function clusters(times, gapMin){
 }
 const clusterAt = (cl, t) => { let lo=0, hi=cl.length-1, ans=null; while(lo<=hi){ const m=(lo+hi)>>1; if(cl[m].t0<=t){ ans=cl[m]; lo=m+1; } else hi=m-1; } return ans && ans.t1>=t ? ans : null; };
 
+/* ---- MERLIN archive kept in this repo (data/merlin/*.json, written by the GitHub Action) ---- */
+const ARCH = {state:"idle", index:null, months:new Map(), loadedKey:"", busy:false, err:""};
+const ARCH_SRC = {id:"merlin", kind:"lightning", name:"MERLIN CG + CC (KSC Weather Archive)", builtin:true};
+async function archIndex(){
+  ARCH.state="loading";
+  try{
+    const r = await fetch("data/merlin/index.json", {cache:"no-store"});
+    if(!r.ok){ ARCH.state = "missing"; return; }
+    ARCH.index = await r.json(); ARCH.state = "ok";
+  }catch(e){ ARCH.state = "missing"; }
+}
+function neededMonths(A){
+  if(!ARCH.index) return [];
+  const a = Number.isFinite(A.a) ? A.a - 864e5 : -Infinity, b = Number.isFinite(A.b) ? A.b + 864e5 : Infinity;
+  return ARCH.index.months.filter(m=>{ const [y,mo]=m.month.split("-").map(Number); const s=Date.UTC(y,mo-1,1), e=Date.UTC(y,mo,1); return e>a && s<b; }).map(m=>m.month);
+}
+async function ensureArch(A){
+  const need = neededMonths(A), key = need.join(",");
+  if(key===ARCH.loadedKey) return;
+  for(const m of need){
+    if(ARCH.months.has(m)) continue;
+    const meta = ARCH.index.months.find(x=>x.month===m);
+    const r = await fetch("data/merlin/"+meta.file, {cache:"no-cache"});
+    if(!r.ok) throw new Error(`${meta.file}: HTTP ${r.status}`);
+    ARCH.months.set(m, await r.json());
+  }
+  let n=0; need.forEach(m=>{ const M=ARCH.months.get(m); n += M.cg.t.length + M.cc.t.length; });
+  const T=new Float64Array(n), LA=new Float32Array(n), LO=new Float32Array(n), TY=new Uint8Array(n);
+  let k=0; const cov=[];
+  need.forEach(m=>{ const M=ARCH.months.get(m);
+    [["cg",0],["cc",1]].forEach(([key,ty])=>{ const c=M[key]; for(let i=0;i<c.t.length;i++){ T[k]=c.t[i]*1000; LA[k]=c.lat[i]/1e4; LO[k]=c.lon[i]/1e4; TY[k]=ty; k++; } });
+    (M.coverage||[]).forEach(([s,e])=>cov.push([s*1000,e*1000])); });
+  const ord = Array.from({length:n},(_,i)=>i).sort((x,y)=>T[x]-T[y]);
+  const t=new Float64Array(n), lat=new Float32Array(n), lon=new Float32Array(n), typ=new Uint8Array(n);
+  ord.forEach((o,i)=>{ t[i]=T[o]; lat[i]=LA[o]; lon[i]=LO[o]; typ[i]=TY[o]; });
+  cov.sort((x,y)=>x[0]-y[0]); const mc=[]; cov.forEach(c=>{ if(mc.length && c[0]<=mc[mc.length-1][1]) mc[mc.length-1][1]=Math.max(mc[mc.length-1][1],c[1]); else mc.push(c.slice()); });
+  OD.set("merlin", {kind:"lightning", n, t, lat, lon, typ, cov:mc, ver:Date.now(), t0:n?t[0]:null, t1:n?t[n-1]:null, bad:0, far:0});
+  CACHE.clear(); ARCH.loadedKey = key;
+}
+function archCard(A){
+  const fmtN = x => (x||0).toLocaleString();
+  if(ARCH.state==="loading" || ARCH.state==="idle") return `<div class="src"><h3><span class="kind">lightning</span>MERLIN CG + CC</h3><div class="meta">Checking this site for archived MERLIN data from the KSC Weather Archive…</div></div>`;
+  if(ARCH.state!=="ok") return `<div class="src"><h3><span class="kind">lightning</span>MERLIN CG + CC</h3><div class="meta">Not set up on this site yet. Add <code>scripts/fetch_merlin.py</code> and <code>.github/workflows/merlin.yml</code> to the repo, then run <b>Archive MERLIN lightning</b> from the repo's Actions tab with the dates you want verified.</div></div>`;
+  const D = OD.get("merlin");
+  const months = ARCH.index.months.map(m=>`${m.month} (${fmtN(m.counts.cg)} CG, ${fmtN(m.counts.cc)} CC)`).join(" · ");
+  let span = "";
+  if(D){ let cg=0, cc=0; for(let i=0;i<D.n;i++){ if(D.t[i]>=A.a && D.t[i]<A.b){ if(D.typ[i]) cc++; else cg++; } } span = `In this period: ${fmtN(cg)} CG, ${fmtN(cc)} CC detections`; }
+  const cov = D && D.cov.length ? D.cov.map(([s,e])=>`${fZ(s)} to ${fZ(e)}`).join("; ") : "";
+  return `<div class="src" data-src="merlin"><h3><span class="kind">lightning</span>MERLIN CG + CC</h3>
+    <div class="meta">${ARCH.busy?"Loading…":esc(span)}<br>Months archived: ${esc(months)||"none yet"}${cov?`<br>Coverage: ${esc(cov)}`:""}${ARCH.err?`<br><span style="color:var(--bad-ink)">${esc(ARCH.err)}</span>`:""}<br>Pulled from the <a href="https://kscweather.ksc.nasa.gov/wxarchive/Reports/Lightning" target="_blank" rel="noopener">KSC Spaceport Weather Archive</a> (MERLIN C-G and C-C) by this repo's <b>Archive MERLIN lightning</b> action, daily or for any past dates you run it for.</div>
+    <div class="row"><button type="button" class="btn sm" data-act="reloadarch">Reload</button></div></div>`;
+}
+
 /* ---- tabs ---- */
 const KIND_ORDER = {ltgwatch:0, ltgwarn:1, windwarn:2, windadv:3, other:4};
 const SRC_KIND = {ltgwatch:"lightning", ltgwarn:"lightning", windwarn:"wind", windadv:"wind"};
@@ -1050,17 +1120,20 @@ function tabRules(tab){
   const saved = (OC.tabs[tab.key]||{}).rules || {};
   const thr = (()=>{ const m = tab.key.match(/≥\s*(\d+)/) || tab.key.match(/(\d+)\s*kt/); return m ? +m[1] : null; })();
   const def = {
-    ltgwatch:{gap:15},
-    ltgwarn:{gap:15, tol:10, clear:15},
+    ltgwatch:{gap:15, count:"both"},
+    ltgwarn:{gap:15, tol:10, clear:15, count:"both"},
     windwarn:{thr:thr??35, metric:"gst", near:3, gap:60},
     windadv:{thr:thr??25, metric:/steady/i.test(tab.key)?"spd":"gst", tol:30, gap:60}
   }[tab.kind] || {};
   return {...def, ...saved};
 }
+function allSources(){ return (ARCH.index ? [ARCH_SRC] : []).concat(OC.sources); }
 function tabSource(tab){
   const id = (OC.tabs[tab.key]||{}).source;
-  const s = OC.sources.find(x=>x.id===id && x.kind===SRC_KIND[tab.kind]);
-  return s || null;
+  const s = allSources().find(x=>x.id===id && x.kind===SRC_KIND[tab.kind]);
+  if(s) return s;
+  if(SRC_KIND[tab.kind]==="lightning" && ARCH.index) return ARCH_SRC;
+  return null;
 }
 
 /* ---- scoring ---- */
@@ -1072,7 +1145,11 @@ const OBSOUT = {
   unsup:{label:"Not supported",css:"var(--fa)"}
 };
 const bucket = o => HITS.slice(0,2).includes(o) ? "hit" : o==="late" ? "late" : (o==="fa"||o==="fasub") ? "fa" : o;
-function covers(D, a, b){ return D && D.n && a>=D.t0-30*6e4 && b<=D.t1+30*6e4; }
+function covers(D, a, b){
+  if(!D) return false;
+  if(D.cov){ return D.cov.some(([s,e])=>a>=s && b<=e); }
+  return D.n && a>=D.t0-30*6e4 && b<=D.t1+30*6e4;
+}
 
 function scoreTab(tab, A){
   const src = tabSource(tab); const D = src && OD.get(src.id); const R = tabRules(tab);
@@ -1089,20 +1166,21 @@ function scoreTab(tab, A){
       if(!site || site.lat==null){ row.o="nosite"; res.rows.push(row); continue; }
       const end = endOf(r);
       if(!covers(D, r.issue, end)){ row.o="nodata"; res.rows.push(row); continue; }
-      const S = strikeSeries(src.id, site), cl = clusters(S.t, R.gap);
+      const S = strikeSeries(src.id, site, R.count), cl = clusters(S.t, R.gap);
       if(tab.kind==="ltgwatch"){
         const i = lb(S.t, r.issue);
         if(i<S.t.length && S.t[i] <= end){
           const first=S.t[i], c=clusterAt(cl, first);
           const j=lb(S.t, end+1);
-          row.n = j-i; row.first=first; row.dist=S.d[i];
+          row.n = j-i; row.first=first; row.dist=S.d[i]; row.firstTyp=typName(S.y[i]); row.tc=typCounts(S,i,j);
           if(c && c.t0 < r.issue){ row.o="late"; row.lead=Math.round((c.t0-r.issue)/6e4); }
           else { row.lead=Math.round((first-r.issue)/6e4); row.o = row.lead >= (r.dlt??30) ? "hitD" : "hitS"; }
         } else {
           row.o="fa";
           // closest strike to the site while the watch was up, for context
           let best=Infinity; const a=lb(D.t,r.issue), b=lb(D.t,end+1);
-          for(let k=a;k<b;k++){ const x=distNM(site.lat,site.lon,D.lat[k],D.lon[k]); if(x<best) best=x; }
+          const want = R.count==='cg'?0:R.count==='cc'?1:-1;
+          for(let k=a;k<b;k++){ if(want>=0 && D.typ && D.typ[k]!==want) continue; const x=distNM(site.lat,site.lon,D.lat[k],D.lon[k]); if(x<best) best=x; }
           row.closest = isFinite(best)?best:null;
         }
       } else {
@@ -1112,10 +1190,11 @@ function scoreTab(tab, A){
           row.o="sup";
           const near = S.t[j-1];
           const c = clusterAt(cl, near); row.delay = c ? Math.round((r.issue-c.t0)/6e4) : null; row.first = c ? c.t0 : near;
+          row.nearTyp = typName(S.y[j-1]);
         } else row.o="unsup";
         if(r.end!=null){
           const a=lb(S.t, r.issue), b=lb(S.t, r.end+1);
-          if(b>a){ row.last=S.t[b-1]; row.clear=Math.round((r.end-row.last)/6e4); }
+          if(b>a){ row.last=S.t[b-1]; row.clear=Math.round((r.end-row.last)/6e4); row.tc=typCounts(S,a,b); }
           const k=lb(S.t, r.end+1); if(k<S.t.length && S.t[k] <= r.end + R.clear*6e4) row.after=S.t[k];
           row.n=b-a;
         }
@@ -1127,11 +1206,11 @@ function scoreTab(tab, A){
     for(const lk of lks){
       const site = OC.sites[lk]; if(!site || site.lat==null) continue;
       if(F.stn!=="all" && !allP.some(r=>r.lk===lk)) continue;
-      const S = strikeSeries(src.id, site);
+      const S = strikeSeries(src.id, site, R.count);
       for(const c of clusters(S.t, R.gap)){
         if(c.t0 < A.a || c.t0 >= A.b) continue;
         const prodsHere = allP.filter(r=>r.lk===lk);
-        const ev = {loc:site.name, t0:c.t0, t1:c.t1, n:c.n};
+        const ev = {loc:site.name, t0:c.t0, t1:c.t1, n:c.n, tc:typCounts(S,c.i0,c.i1+1)};
         if(tab.kind==="ltgwatch"){
           const w = prodsHere.filter(r=>r.issue<=c.t0 && endOf(r)>=c.t0).sort((x,y)=>x.issue-y.issue)[0];
           if(w){ ev.o="covered"; ev.lead=Math.round((c.t0-w.issue)/6e4); ev.p=w; }
@@ -1254,11 +1333,12 @@ function locPanel(){
 }
 
 function rulesBar(tab, R, src){
-  const srcs = OC.sources.filter(s=>s.kind===SRC_KIND[tab.kind]);
+  const srcs = allSources().filter(s=>s.kind===SRC_KIND[tab.kind]);
   const num = (k,lab,step,title) => `<label class="f"${title?` title="${esc(title)}"`:""}>${lab}<input type="number" step="${step}" data-rule="${k}" value="${R[k]}"></label>`;
   let h = `<div class="rules"><label class="f" style="min-width:200px">Verify against<select data-act="pick">${srcs.length?"":`<option value="">No ${SRC_KIND[tab.kind]} source added yet</option>`}<option value="">— choose a source —</option>${srcs.map(s=>`<option value="${s.id}"${src&&src.id===s.id?" selected":""}>${esc(s.name)}</option>`).join("")}</select></label>`;
-  if(tab.kind==="ltgwatch") h += num("gap","New event after gap (min)",5,"Strikes closer together than this belong to one event");
-  if(tab.kind==="ltgwarn") h += num("tol","Strike within (min) before issue",1,"A Phase 2 is supported if a strike was inside the radius this many minutes before issue (or up to 5 min after)") + num("clear","Flag strike within (min) after cancel",1) + num("gap","New event after gap (min)",5);
+  const cnt = `<label class="f" title="Which MERLIN detections verify a lightning product">Counts as lightning<select data-rule="count"><option value="both"${R.count==="both"?" selected":""}>CG or CC</option><option value="cg"${R.count==="cg"?" selected":""}>CG only</option><option value="cc"${R.count==="cc"?" selected":""}>CC only</option></select></label>`;
+  if(tab.kind==="ltgwatch") h += cnt + num("gap","New event after gap (min)",5,"Detections closer together than this belong to one event");
+  if(tab.kind==="ltgwarn") h += cnt + num("tol","Strike within (min) before issue",1,"A Phase 2 is supported if a strike was inside the radius this many minutes before issue (or up to 5 min after)") + num("clear","Flag strike within (min) after cancel",1) + num("gap","New event after gap (min)",5);
   if(tab.kind==="windwarn") h += num("thr","Threshold (kt)",1) + `<label class="f">Wind measure<select data-rule="metric"><option value="gst"${R.metric==="gst"?" selected":""}>Peak / gust</option><option value="spd"${R.metric==="spd"?" selected":""}>Mean / steady</option></select></label>` + num("near","Sub-threshold within (kt)",1,"A false alarm whose peak was within this many knots of threshold is shown as sub-threshold") + num("gap","New event after gap (min)",15);
   if(tab.kind==="windadv") h += num("thr","Threshold (kt)",1) + `<label class="f">Wind measure<select data-rule="metric"><option value="gst"${R.metric==="gst"?" selected":""}>Peak / gust</option><option value="spd"${R.metric==="spd"?" selected":""}>Mean / steady</option></select></label>` + num("tol","Obs within (min) before issue",5) + num("gap","New event after gap (min)",15);
   return h + `</div>`;
@@ -1274,7 +1354,7 @@ function tabBody(S){
   const head = rulesBar(tab, R, src);
   if(!SRC_KIND[tab.kind]) return `<p class="note">No automatic verifier exists for “${esc(tab.key)}” yet. Tell me what system observes it and this tab can be wired up.</p>`;
   if(!src) return head + `<div class="empty">Point this tab at a ${SRC_KIND[tab.kind]} data source. Add one under <b>Observation data sources</b>, then choose it above.</div>`;
-  if(!D) return head + `<div class="empty">“${esc(src.name)}” has no data loaded in this browser. Use <b>Load file</b> on that source.</div>`;
+  if(!D) return head + (src.builtin ? `<div class="empty">${ARCH.busy?"Loading MERLIN archive…":"No MERLIN data archived for this period yet. Run the <b>Archive MERLIN lightning</b> action for these dates."}</div>` : `<div class="empty">“${esc(src.name)}” has no data loaded in this browser. Use <b>Load file</b> on that source.</div>`);
   const rows = S.rows, ev = S.events;
   const cnt = k => rows.filter(x=>x.o===k).length;
   const nosite = new Set(rows.filter(x=>x.o==="nosite").map(x=>x.r.loc));
@@ -1323,8 +1403,9 @@ function tabBody(S){
   pr.sort((a,b)=>b.r.issue-a.r.issue);
   const evid = x => {
     if(x.o==="nosite"||x.o==="nodata") return "";
-    if(tab.kind==="ltgwatch") return x.first ? `${x.n} strike${x.n===1?"":"s"} within radius · first ${fZ(x.first)} at ${x.dist.toFixed(1)} NM` : x.closest!=null ? `none within radius · closest ${x.closest.toFixed(1)} NM` : x.o==="fa" ? "no strikes in window" : "";
-    if(tab.kind==="ltgwarn") return [x.first?`event began ${fZ(x.first)}`:"no strike near issue", x.last?`last strike ${fHM(x.last)}`:"", x.after?`<span class="flag">strike ${fHM(x.after)} after cancel</span>`:""].filter(Boolean).join(" · ");
+    const tcs = tc => tc ? [tc.cg?`${tc.cg} CG`:"", tc.cc?`${tc.cc} CC`:""].filter(Boolean).join(", ") : "";
+    if(tab.kind==="ltgwatch") return x.first ? `first ${x.firstTyp} ${fZ(x.first)} at ${x.dist.toFixed(1)} NM · ${tcs(x.tc)} in window` : x.closest!=null ? `none within radius · closest ${x.closest.toFixed(1)} NM` : x.o==="fa" ? "no lightning in window" : "";
+    if(tab.kind==="ltgwarn") return [x.first?`event began ${fZ(x.first)}`:"no lightning near issue", x.tc?tcs(x.tc):"", x.last?`last ${fHM(x.last)}`:"", x.after?`<span class="flag">strike ${fHM(x.after)} after cancel</span>`:""].filter(Boolean).join(" · ");
     if(x.max!=null) return `max ${Math.round(x.max)} kt${x.maxTw&&x.maxTw!=="obs"?` · ${esc(x.maxTw)}`:""}${isFinite(x.maxH)?` @ ${Math.round(x.maxH)} ft`:""}${x.maxT?` · ${fHM(x.maxT)}`:""}${x.first&&tab.kind==="windwarn"?` · first ≥${R.thr} kt ${fHM(x.first)}`:""}`;
     return "";
   };
@@ -1338,8 +1419,8 @@ function tabBody(S){
     </tbody></table></div></section>`;
   // events table
   h += `<section class="panel"><h2>Observed events</h2><p class="sub">Each ${tab.kind.startsWith("ltg")?`run of strikes inside a location's radius (a gap over ${R.gap} min starts a new event)`:`run of observations at or above ${R.thr} kt (a gap over ${R.gap} min starts a new event)`}, and whether a product was in effect when it began.</p>
-    ${ev.length?`<div class="tablewrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Event start</th><th>Ended</th><th>Location</th><th class="n">${tab.kind.startsWith("ltg")?"Strikes":"Obs ≥ thr"}</th>${tab.kind.startsWith("wind")?`<th class="n">Max kt</th><th>Tower</th>`:""}<th>Coverage</th><th class="n">${forecast?"Lead":"Delay"}</th><th>Product</th></tr></thead><tbody>
-    ${ev.slice().reverse().slice(0,800).map(e=>`<tr${e.p?` class="case" data-id="${esc(e.p.id)}"`:""}><td class="mono">${fZ(e.t0)}</td><td class="mono">${fHM(e.t1)}</td><td>${esc(e.loc)}</td><td class="n">${e.n}</td>${tab.kind.startsWith("wind")?`<td class="n">${Math.round(e.max)}</td><td>${esc(e.tw)}</td>`:""}<td>${chipE(e.o)}</td><td class="n">${e.lead==null?"":forecast?e.lead:-e.lead}</td><td>${e.p?`${esc(e.p.stn)} <span class="mono">${esc(e.p.num)}</span>`:""}</td></tr>`).join("")}
+    ${ev.length?`<div class="tablewrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Event start</th><th>Ended</th><th>Location</th><th class="n">${tab.kind.startsWith("ltg")?"CG":"Obs ≥ thr"}</th>${tab.kind.startsWith("ltg")?`<th class="n">CC</th>`:""}${tab.kind.startsWith("wind")?`<th class="n">Max kt</th><th>Tower</th>`:""}<th>Coverage</th><th class="n">${forecast?"Lead":"Delay"}</th><th>Product</th></tr></thead><tbody>
+    ${ev.slice().reverse().slice(0,800).map(e=>`<tr${e.p?` class="case" data-id="${esc(e.p.id)}"`:""}><td class="mono">${fZ(e.t0)}</td><td class="mono">${fHM(e.t1)}</td><td>${esc(e.loc)}</td><td class="n">${e.tc?e.tc.cg:e.n}</td>${e.tc?`<td class="n">${e.tc.cc}</td>`:""}${tab.kind.startsWith("wind")?`<td class="n">${Math.round(e.max)}</td><td>${esc(e.tw)}</td>`:""}<td>${chipE(e.o)}</td><td class="n">${e.lead==null?"":forecast?e.lead:-e.lead}</td><td>${e.p?`${esc(e.p.stn)} <span class="mono">${esc(e.p.num)}</span>`:""}</td></tr>`).join("")}
     </tbody></table></div>`:`<p class="sub">No events in this period.</p>`}</section>`;
   return h;
 }
@@ -1367,20 +1448,26 @@ function renderObs(A){
   const box = $("#obs");
   if(VIEW!=="obs") return;
   if(!A){ box.innerHTML = `<div class="panel empty">Load a Bifrost WWA export above first; observation verification scores those same products.</div>`; return; }
+  if(ARCH.state==="idle"){ archIndex().then(()=>renderObs(LAST)); }
+  else if(ARCH.state==="ok" && !ARCH.busy && neededMonths(A).join(",")!==ARCH.loadedKey){
+    ARCH.busy=true; ARCH.err="";
+    ensureArch(A).catch(e=>{ ARCH.err="Couldn't load archive: "+e.message; }).finally(()=>{ ARCH.busy=false; renderObs(LAST); });
+  }
   const tabs = tabList();
   if(!OTAB || !tabs.some(t=>t.key===OTAB)) OTAB = tabs[0] && tabs[0].key;
   const tab = tabs.find(t=>t.key===OTAB);
   const inRange = new Map(); A.rs.forEach(r=>inRange.set(r.product,(inRange.get(r.product)||0)+1));
   let h = `<p class="note">Scores each product against raw observations instead of what was entered in Bifrost. Point each tab at a data source; files are read in this browser and stored only on this computer.</p>
-  <section class="panel"><h2>Observation data sources</h2><p class="sub">Add a source for each system (for example MERLIN strikes or WINDS towers), then load an export from it as CSV or JSON. A URL works only if that system allows browser access from this site; otherwise download the file and load it.</p>
-    <div class="srcs">${OC.sources.map(srcCard).join("") || `<p class="sub">No sources yet.</p>`}</div>
+  <section class="panel"><h2>Observation data sources</h2><p class="sub">Lightning tabs use MERLIN CG + CC from the KSC Weather Archive, saved to this site, unless you point them elsewhere. For other systems, add a source and load an export from it as CSV or JSON. A URL works only if that system allows browser access from this site; otherwise download the file and load it.</p>
+    <div class="srcs">${archCard(A)}${OC.sources.map(srcCard).join("")}</div>
     <div class="row" style="margin-top:10px"><button type="button" class="btn" data-act="addsrc" data-kind="lightning">Add lightning source</button><button type="button" class="btn" data-act="addsrc" data-kind="wind">Add wind source</button><input type="file" id="obsFile" accept=".csv,.txt,.json,.tsv,.dat" hidden></div>
   </section>
   ${locPanel()}
   <div class="ptabs" role="tablist" aria-label="WWA types">${tabs.map(t=>{ const src=tabSource(t); return `<button type="button" role="tab" data-tab="${esc(t.key)}" aria-selected="${t.key===OTAB}">${esc(t.key)}<span class="cnt">${inRange.get(t.key)||0}${src?"":" · no source"}</span></button>`; }).join("")}</div>
   <div role="tabpanel">${tab ? tabBody(scoreTab(tab, A)) : ""}</div>
   <details class="panel method"><summary>How observation scoring works</summary><ul>
-    <li><b>Lightning watches.</b> Hit if a strike falls inside the location's radius between issue and expiry or cancel. Lead = first strike − issue, measured against each criterion's desired lead. <em>Late</em> if that lightning was already going when the watch was issued. False alarm if no strike fell inside the radius.</li>
+    <li><b>Lightning data.</b> MERLIN cloud-to-ground (CG) and cloud-to-cloud (CC) detections from the KSC Spaceport Weather Archive. By default either type counts; each lightning tab can be set to CG only or CC only.</li>
+    <li><b>Lightning watches.</b> Hit if a CG or CC detection falls inside the location's radius between issue and expiry or cancel. Lead = first strike − issue, measured against each criterion's desired lead. <em>Late</em> if that lightning was already going when the watch was issued. False alarm if no strike fell inside the radius.</li>
     <li><b>Phase 2 warnings.</b> Supported if a strike was inside the radius shortly before issue. Issue delay = issue − start of that lightning event. All-clear = cancel − last strike; strikes soon after cancel are flagged.</li>
     <li><b>Wind warnings.</b> Hit if any tower in the station's area, at or below the height limit, reached the threshold while the warning was valid. False alarms within the sub-threshold margin are shown as sub-threshold.</li>
     <li><b>Wind advisories</b> are checked for a qualifying observation near issue, for issue delay, and for how long they stayed up after the last qualifying obs.</li>
@@ -1397,6 +1484,7 @@ obsBox.addEventListener("click", async e=>{
   const t = e.target.closest("[data-act],[data-tab]"); if(!t) return;
   if(t.dataset.tab){ OTAB=t.dataset.tab; OSHOW.dis=false; renderObs(LAST); return; }
   const act = t.dataset.act, card = t.closest("[data-src]"), id = card && card.dataset.src, s = id && OC.sources.find(x=>x.id===id);
+  if(act==="reloadarch"){ ARCH.state="idle"; ARCH.index=null; ARCH.months.clear(); ARCH.loadedKey=""; OD.delete("merlin"); CACHE.clear(); renderObs(LAST); return; }
   if(act==="addsrc"){
     const kind=t.dataset.kind, n=OC.sources.filter(x=>x.kind===kind).length;
     const ns = {id:"s"+Date.now().toString(36), kind, name: kind==="lightning" ? (n?"Lightning source "+(n+1):"MERLIN strikes") : (n?"Wind source "+(n+1):"WINDS towers")};
@@ -1433,7 +1521,7 @@ obsBox.addEventListener("click", async e=>{
     if(s.kind==="wind" && P.map.spd==null && P.map.gst==null){ errEl.textContent = "Choose a speed or gust column."; return; }
     errEl.textContent = "Importing…";
     setTimeout(async ()=>{
-      const D = buildData(s.kind, P.table, P.map, P.units);
+      const D = buildData(s.kind, P.table, P.map, P.units, P.name);
       if(!D.n){ errEl.textContent = "No usable rows; check the time and position columns."; return; }
       OD.set(id, D); CACHE.clear(); PENDING.delete(id);
       s.file = P.name; s.meta = {n:D.n, t0:D.t0, t1:D.t1}; s.map = P.map; s.units = P.units; saveCfg();
