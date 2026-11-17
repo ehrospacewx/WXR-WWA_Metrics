@@ -131,10 +131,35 @@ tr.detail td{background:var(--panel-2);white-space:normal}
 .actions li{padding:2px 0}
 details.method summary{cursor:pointer;font-weight:600}
 details.method p,details.method li{color:var(--ink-2);max-width:900px}
+.viewtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:0 0 14px}
+.viewtabs button,.ptabs button{border:0;background:transparent;padding:9px 14px;cursor:pointer;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:550}
+.viewtabs button[aria-selected="true"],.ptabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.viewtabs button:hover,.ptabs button:hover{color:var(--ink)}
+.ptabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);margin:0 0 12px}
+.ptabs button{font-size:13.5px;padding:8px 12px}
+.ptabs .cnt{font-size:11.5px;color:var(--muted);margin-left:4px;font-weight:500}
+.srcs{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+.src{border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--panel-2)}
+.src h3{margin:0;font-size:14px;display:flex;align-items:center;gap:8px}
+.src h3 input{flex:1;min-width:0;font-weight:600;border:1px solid transparent;background:transparent;border-radius:6px;padding:2px 5px}
+.src h3 input:hover,.src h3 input:focus{border-color:var(--line);background:var(--panel)}
+.src .meta{font-size:12.5px;color:var(--ink-2);margin:4px 0 8px}
+.kind{font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:1px 6px;border-radius:5px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.mapf{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0;padding:8px;border:1px dashed var(--line);border-radius:8px;background:var(--panel)}
+.mapf select,.rules input,.rules select,.loctbl input{width:100%}
+.rules{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);margin:0 0 12px}
+.rules label.f{min-width:120px}
+.rules input[type=number],.loctbl input{border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:5px 7px}
+.loctbl td{padding:3px 6px}
+.loctbl input{min-width:80px}
+.btn.sm{padding:3px 9px;font-size:12.5px}
+.note{font-size:12.5px;color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;margin:0 0 12px}
+.agree td.hl{font-weight:700;background:color-mix(in srgb,var(--hitD) 12%,transparent)}
+.agree td.off{color:var(--bad-ink);font-weight:600}
 .foot{color:var(--muted);font-size:12px;text-align:center;margin:20px 0}
 
 @media print{
-  .topnav,.theme,#loadPanel,.filters .btn,.noprint,#cases .row{display:none!important}
+  .viewtabs,.ptabs,.rules,.srcs,#obsLoc,.theme,#loadPanel,.filters .btn,.noprint,#cases .row{display:none!important}
   body{background:#fff}
   .panel,.tile,.filters{break-inside:avoid;border-color:#ccc}
   .filters{position:static}
@@ -162,13 +187,13 @@ details.method p,details.method li{color:var(--ink-2);max-width:900px}
   <img src="https://cyclonecizek.github.io/ERPlanningForecast/45ws-logo.png" alt="45th Weather Squadron" onerror="this.remove()">
   <div>
     <h1>Watch, warning &amp; advisory verification</h1>
-    <p>POD, FAR, CSI and lead time for Eastern Range WWAs, scored from Bifrost WWA metrics exports. Lightning watch misses are found by checking every Phase 2 warning for a Phase 1 watch in effect at that location.</p>
+    <p>POD, FAR, CSI and lead time for Eastern Range WWAs. <b>User verification</b> scores what forecasters entered in Bifrost; <b>Observation verification</b> rescores the same products against lightning and tower data.</p>
   </div>
 </header>
 
 <section class="panel" id="loadPanel">
   <h2>Bifrost exports</h2>
-  <p class="sub">Load one or more WWA metrics exports (the JSON <code>.txt</code> or <code>.json</code> file). Files are read in this browser and kept only on this computer; nothing is uploaded. Re-loading an overlapping export updates records instead of duplicating them.</p>
+  <p class="sub">Load one or more WWA metrics exports (the JSON <code>.txt</code> or <code>.json</code> file). Both views score these products. Files are read in this browser and kept only on this computer; nothing is uploaded. Re-loading an overlapping export updates records instead of duplicating them.</p>
   <div class="drop" id="drop">
     <strong>Drop Bifrost export files here</strong> or
     <button type="button" class="btn primary" id="pick">Choose files</button>
@@ -183,9 +208,15 @@ details.method p,details.method li{color:var(--ink-2);max-width:900px}
   <div class="status" id="status" role="status" aria-live="polite"></div>
 </section>
 
-<div id="app"></div>
+<div id="filters"></div>
+<div class="viewtabs" role="tablist" aria-label="Verification views">
+  <button type="button" role="tab" id="vt-user" aria-selected="true" aria-controls="app">User verification</button>
+  <button type="button" role="tab" id="vt-obs" aria-selected="false" aria-controls="obs">Observation verification</button>
+</div>
+<div id="app" role="tabpanel" aria-labelledby="vt-user"></div>
+<div id="obs" role="tabpanel" aria-labelledby="vt-obs" hidden></div>
 
-<details class="panel method">
+<details class="panel method" id="methodUser">
   <summary>How it's scored</summary>
   <ul>
     <li><b>Duplicates.</b> Records are keyed on Bifrost's <code>historyId</code>; when the same product appears twice, the highest <code>revision</code> is kept.</li>
@@ -227,6 +258,7 @@ const dayKey = t => new Date(t).toISOString().slice(0,10);
 const monKey = t => new Date(t).toISOString().slice(0,7);
 const pct = (a,b) => b ? Math.round(100*a/b)+"%" : "—";
 const ratio = (a,b) => b ? a/b : null;
+const niceStep = max => { const raw=Math.max(1,max)/5, p=Math.pow(10,Math.floor(Math.log10(raw))), f=raw/p; return Math.max(1,(f<=1?1:f<=2?2:f<=5?5:10)*p); };
 const median = a => { if(!a.length) return null; const s=[...a].sort((x,y)=>x-y), m=s.length>>1; return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
 const hrs = m => (m/60).toFixed(m<600?1:0);
 const locKey = s => s.replace(/\s+/g,"").toUpperCase();
@@ -503,7 +535,7 @@ function outcomeChart(A){
   const sx = v => (W-L-R)*v/max;
   let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Verified forecast products by outcome and location">${hatchDefs()}`;
   // ticks
-  const step = max>40?10:max>16?5:max>8?2:1;
+  const step = niceStep(max);
   for(let v=0; v<=max; v+=step){ const x=L+sx(v); s+=`<line class="grid" x1="${x}" x2="${x}" y1="${top}" y2="${H-20}"/><text x="${x}" y="${H-6}" font-size="11" text-anchor="middle">${v}</text>`; }
   let prevKind=null;
   rows.forEach((g,i)=>{
@@ -538,7 +570,7 @@ function leadChart(A){
   const W=460,H=230,L=34,B=36,T=22,R=8, bw=(W-L-R)/bins.length;
   const sy = v => (H-B-T)*v/max;
   let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lead time distribution for verified hits">`;
-  const step = max>20?5:max>8?2:1;
+  const step = niceStep(max);
   for(let v=0; v<=max; v+=step){ const y=H-B-sy(v); s+=`<line class="grid" x1="${L}" x2="${W-R}" y1="${y}" y2="${y}"/><text x="${L-6}" y="${y+4}" font-size="11" text-anchor="end">${v}</text>`; }
   c.forEach((arr,i)=>{
     const h = sy(arr.length), x = L+i*bw+5, w=bw-10, y=H-B-h;
@@ -708,6 +740,7 @@ function render(){
     LAST=null;
     app.innerHTML = `<div class="panel empty">No WWA records loaded yet. Load a Bifrost WWA metrics export above to see the scorecard.</div>`;
     if(!$("#status").textContent) $("#status").textContent = "";
+    $("#filters").innerHTML = ""; renderObs(null);
     return;
   }
   if(!$("#status").innerHTML) $("#status").innerHTML = `<b>${DB.size}</b> products stored in this browser.`;
@@ -721,7 +754,7 @@ function render(){
   const allLtgLeads = lt ? lt.rs.map(r=>r.lead).filter(x=>x!=null) : [];
   const per = F.from||F.to ? `${F.from||"…"} to ${F.to||"…"}` : (F.month==="all" ? "All loaded months" : (()=>{ const m=(F.month==="latest"?months[0]:F.month); const [y,mo]=m.split("-"); return `${MON[+mo-1]} ${y}`; })());
 
-  app.innerHTML = `
+  $("#filters").innerHTML = `
   <div class="filters" role="group" aria-label="Filters">
     <label class="f">Month<select id="fMonth"><option value="latest"${F.month==="latest"?" selected":""}>Latest (${months[0]})</option>${months.map(m=>`<option value="${m}"${F.month===m?" selected":""}>${m}</option>`).join("")}<option value="all"${F.month==="all"?" selected":""}>All loaded</option></select></label>
     <label class="f">From<input type="date" id="fFrom" value="${F.from}"></label>
@@ -729,8 +762,10 @@ function render(){
     <label class="f">Station<select id="fStn"><option value="all">All stations</option>${stns.map(s=>`<option value="${s}"${F.stn===s?" selected":""}>${s} · ${esc(STN[s]||s)}</option>`).join("")}</select></label>
     <div class="sp"></div>
     <div style="font-size:13px;color:var(--ink-2);align-self:center"><b style="color:var(--ink)">${esc(per)}</b> · ${A.rs.length} products</div>
-  </div>
+  </div>`;
+  app.innerHTML = `
   ${A.rs.length ? `
+  <p class="note">Scored from the verification forecasters enter in Bifrost when they close each product. Compare against independent observations on the <b>Observation verification</b> tab.</p>
   <div class="tiles">
     ${lt ? tile("Lightning watch POD", pf(lt.s.pod), "", `${lt.s.cov} of ${lt.s.ev} Phase 2 events covered by a watch · ${lt.s.covD} with ≥30 min`) : ""}
     ${lt ? tile("Lightning watch FAR", pf(lt.s.far), "", `${lt.s.fas} false alarms of ${lt.s.ver} verified · CSI ${pf(lt.s.csi)}`) : ""}
@@ -758,6 +793,7 @@ function render(){
   </section>` : `<div class="panel empty">No products in this period or station.</div>`}`;
 
   // wire controls
+  renderObs(A);
   $("#fMonth").onchange = e=>{ F.month=e.target.value; F.from=F.to=""; F.day=null; render(); };
   $("#fFrom").onchange = e=>{ F.from=e.target.value; F.day=null; render(); };
   $("#fTo").onchange = e=>{ F.to=e.target.value; F.day=null; render(); };
@@ -773,6 +809,7 @@ function bindLead(){ const lk=$("#leadKind"); lk.onchange = e=>{ F.leadKind=e.ta
 document.addEventListener("click", e=>{
   const tr = e.target.closest && e.target.closest("tr.case"); if(!tr || !LAST) return;
   const id = tr.dataset.id;
+  if(tr.closest("#obs")){ toggleDetail(tr); return; }
   if(!tr.closest("#caseBox")){
     F.q = DB.get(id)?.id || ""; F.out="all";
     $("#q").value = F.q; $("#fOut").value="all"; $("#caseBox").innerHTML = caseTable(LAST);
@@ -788,6 +825,657 @@ function toggleDetail(tr){
   const r = DB.get(tr.dataset.id); if(!r) return;
   tr.insertAdjacentHTML("afterend", `<tr class="detail"><td colspan="9">${detailHtml(r)}</td></tr>`);
 }
+
+
+/* =====================================================================
+   OBSERVATION VERIFICATION
+   Independent scoring of each product against raw observations
+   (lightning strikes, tower/surface winds) the user points each tab at.
+   ===================================================================== */
+const OCFG_KEY = "erwwa.obscfg.v1";
+const NM = 3440.065; // earth radius, nautical miles
+const toRad = d => d*Math.PI/180;
+function distNM(la1,lo1,la2,lo2){
+  const dLa=toRad(la2-la1), dLo=toRad(lo2-lo1);
+  const h=Math.sin(dLa/2)**2+Math.cos(toRad(la1))*Math.cos(toRad(la2))*Math.sin(dLo/2)**2;
+  return 2*NM*Math.asin(Math.min(1,Math.sqrt(h)));
+}
+const lb = (arr,x) => { let lo=0, hi=arr.length; while(lo<hi){ const m=(lo+hi)>>1; if(arr[m]<x) lo=m+1; else hi=m; } return lo; };
+
+/* Default locations. Coordinates are starting points only: confirm against the 45 WS warning-circle centres. */
+const DEF_SITES = [
+  ["PSFB", 28.2395,-80.6075, "Patrick SFB airfield (from Bifrost KCOF point)"],
+  ["KSC LANDING", 28.6150,-80.6945, "SLF (from Bifrost KTTS point)"],
+  ["LC-39 A/B", 28.6180,-80.6125, "midpoint of pads 39A and 39B"],
+  ["VAB/BFF", 28.5865,-80.6510, "Vehicle Assembly Building"],
+  ["KSC INDUSTRIAL", 28.5240,-80.6510, "KSC industrial area / HQ"],
+  ["CX 20/16/14/LZ", 28.4990,-80.5530, "between LZ-1 and CX-20"],
+  ["CX 36/46", 28.4650,-80.5330, "between CX-36 and CX-46"],
+  ["CX 37/ASOC/LPF", 28.5320,-80.5650, "CX-37"],
+  ["CX 41/VIF-G/VIF-A", 28.5830,-80.5830, "CX-41"],
+  ["CAPE CENTRAL", 28.4676,-80.5666, "Skid Strip (from Bifrost KXMR point)"],
+  ["PORT AREA", 28.4100,-80.6150, "Port Canaveral"],
+  ["ASTROTECH", null, null, "needs coordinates"],
+  ["CIDCO PARK", null, null, "needs coordinates"],
+  ["MID-COURSE RADAR", null, null, "needs coordinates"]
+];
+const DEF_AREAS = {
+  KTTS:{name:"KSC / SLF", lat:28.585, lon:-80.655, r:8, maxFt:300, towers:""},
+  KXMR:{name:"CCSFS Skid Strip", lat:28.480, lon:-80.565, r:8, maxFt:200, towers:""},
+  KCOF:{name:"Patrick SFB", lat:28.2395, lon:-80.6075, r:3, maxFt:0, towers:""}
+};
+function defaultCfg(){
+  const sites = {};
+  DEF_SITES.forEach(([n,la,lo,note])=>sites[locKey(n)]={name:n,lat:la,lon:lo,r:5,note});
+  return {sites, areas:JSON.parse(JSON.stringify(DEF_AREAS)), sources:[], tabs:{}};
+}
+let OC = defaultCfg();
+try{ const c = JSON.parse(localStorage.getItem(OCFG_KEY)||"null"); if(c){ OC = {...defaultCfg(), ...c}; OC.sites={...defaultCfg().sites, ...c.sites}; OC.areas={...defaultCfg().areas, ...c.areas}; } }catch(e){}
+function saveCfg(){ try{ localStorage.setItem(OCFG_KEY, JSON.stringify(OC)); }catch(e){} }
+
+/* ---- IndexedDB for observation data (strike files are too big for localStorage) ---- */
+const IDB = (()=>{
+  let p=null; const mem=new Map();
+  const db=()=> p ||= new Promise((res,rej)=>{ try{ const r=indexedDB.open("erwwa-obs",1); r.onupgradeneeded=()=>r.result.createObjectStore("data"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){ rej(e); } });
+  const tx=(mode,fn)=>db().then(d=>new Promise((res,rej)=>{ const t=d.transaction("data",mode); const q=fn(t.objectStore("data")); t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error); }));
+  return {
+    get:k=>tx("readonly",s=>s.get(k)).catch(()=>mem.get(k)),
+    set:(k,v)=>tx("readwrite",s=>s.put(v,k)).then(()=>true).catch(()=>{ mem.set(k,v); return false; }),
+    del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>mem.delete(k))
+  };
+})();
+const OD = new Map();      // source id -> parsed data (in memory)
+const PENDING = new Map(); // source id -> {name, table} awaiting column mapping
+const CACHE = new Map();
+
+/* ---- parsing ---- */
+function parseTable(text, fname){
+  text = text.replace(/^﻿/,"");
+  const t = text.trim();
+  if(t[0]==="[" || t[0]==="{"){
+    let j = JSON.parse(t);
+    if(!Array.isArray(j)) for(const k of Object.keys(j)) if(Array.isArray(j[k])){ j=j[k]; break; }
+    if(!Array.isArray(j) || !j.length || typeof j[0]!=="object") throw new Error("JSON must be an array of records");
+    const cols = [...new Set(j.slice(0,50).flatMap(o=>Object.keys(o)))];
+    return {cols, rows:j.map(o=>cols.map(c=>o[c]))};
+  }
+  const lines = text.split(/\r?\n/).filter(l=>l.trim() && !/^\s*#/.test(l));
+  if(!lines.length) throw new Error("file is empty");
+  const first = lines[0];
+  const delim = first.includes("\t") ? "\t" : first.includes(",") ? "," : first.includes(";") ? ";" : /\s+/;
+  const split = l => {
+    if(delim instanceof RegExp) return l.trim().split(delim);
+    const out=[]; let cur="", q=false;
+    for(let i=0;i<l.length;i++){ const c=l[i];
+      if(q){ if(c==='"'){ if(l[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+      else if(c==='"') q=true; else if(c===delim){ out.push(cur); cur=""; } else cur+=c; }
+    out.push(cur); return out.map(x=>x.trim());
+  };
+  let rows = lines.map(split);
+  const isData = r => r.filter(x=>x!=="" && !isNaN(+x)).length >= Math.max(2, r.length-2);
+  let cols;
+  if(isData(rows[0])){ cols = rows[0].map((_,i)=>"column "+(i+1)); }
+  else { cols = rows[0].map((c,i)=>c||("column "+(i+1))); rows = rows.slice(1); }
+  return {cols, rows};
+}
+function obsTime(v, v2){
+  if(v==null || v==="") return null;
+  if(typeof v==="number") return v>1e11 ? v : v*1000;
+  let s = String(v).trim(); if(v2!=null && v2!=="") s += " " + String(v2).trim();
+  if(/^\d{9,10}(\.\d+)?$/.test(s)) return Math.round(+s*1000);
+  if(/^\d{12,13}$/.test(s)) return +s;
+  let m = s.match(/^(\d{4})(\d{2})(\d{2})[ T_]?(\d{2}):?(\d{2}):?(\d{2})?(?:\.\d+)?\s*Z?$/i);
+  if(m) return Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*(Z|UTC|GMT|[+-]\d{2}:?\d{2})?$/i);
+  if(m){
+    let t = Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0)) + Math.round(+(m[7]||0)*1000);
+    if(m[8] && /^[+-]/.test(m[8])){ const z=m[8].replace(":",""); t -= (z[0]==="-"?-1:1)*(+z.slice(1,3)*60 + +z.slice(3,5))*6e4; }
+    return t;
+  }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(m) return Date.UTC(+m[3],m[1]-1,+m[2],+m[4],+m[5],+(m[6]||0));
+  m = s.match(/^(\d{4})[-\/](\d{3})[ T:](\d{1,2}):(\d{2})(?::(\d{2}))?/); // year-julian day
+  if(m) return Date.UTC(+m[1],0,+m[2],+m[3],+m[4],+(m[5]||0));
+  const p = Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s+"Z");
+  return isNaN(p) ? null : p;
+}
+const FIELDS = {
+  lightning:[["t","Time (UTC)",1],["d","Date (if separate)",0],["lat","Latitude",1],["lon","Longitude",1]],
+  wind:[["t","Time (UTC)",1],["d","Date (if separate)",0],["tw","Tower / station ID",0],["lat","Latitude",0],["lon","Longitude",0],["h","Height",0],["spd","Mean / steady speed",0],["gst","Peak / gust",0]]
+};
+function guessMap(kind, cols){
+  const m = {}; const used=new Set();
+  const pick = (k, re, not) => { const i = cols.findIndex((c,i)=>!used.has(i) && re.test(c) && !(not && not.test(c))); if(i>=0){ m[k]=i; used.add(i); } };
+  pick("t", /^(time|datetime|date_?time|timestamp|time_?utc|obs_?time|valid(_?time)?|utc|time_?z)$/i);
+  if(m.t==null) pick("t", /time|stamp|utc/i, /zone/i);
+  pick("d", /^date$/i);
+  if(m.t==null && m.d!=null){ m.t=m.d; delete m.d; }
+  pick("lat", /^lat|latitude/i); pick("lon", /^(lon|lng|long)|longitude/i);
+  if(kind==="wind"){
+    pick("gst", /gust|peak|^pk|max/i);
+    pick("spd", /speed|spd|wspd|mean|avg|sustain|steady/i, /dir/i);
+    pick("h", /height|hgt|level|elev|alt|_ft$|^ft$|^agl/i);
+    pick("tw", /tower|^twr|station|^stn|site|sensor|^id$|icao/i);
+  }
+  return m;
+}
+const SPD = {kt:1, mph:0.868976, "m/s":1.943844, "km/h":0.539957};
+const HGT = {ft:1, m:3.28084};
+function buildData(kind, table, map, units){
+  const n = table.rows.length;
+  const T=new Float64Array(n), LA=new Float32Array(n), LO=new Float32Array(n);
+  let k=0, bad=0, far=0;
+  if(kind==="lightning"){
+    for(const r of table.rows){
+      const t = obsTime(r[map.t], map.d!=null? r[map.d]:undefined), la=+r[map.lat], lo=+r[map.lon];
+      if(t==null || !isFinite(la) || !isFinite(lo)){ bad++; continue; }
+      if(distNM(la,lo,28.45,-80.62) > 60){ far++; continue; } // keep the Eastern Range neighbourhood only
+      T[k]=t; LA[k]=la; LO[k]=lo; k++;
+    }
+    const ord = [...Array(k).keys()].sort((a,b)=>T[a]-T[b]);
+    const t=new Float64Array(k), lat=new Float32Array(k), lon=new Float32Array(k);
+    ord.forEach((o,i)=>{ t[i]=T[o]; lat[i]=LA[o]; lon[i]=LO[o]; });
+    return {kind, n:k, bad, far, t, lat, lon, t0:k?t[0]:null, t1:k?t[k-1]:null};
+  }
+  const H=new Float32Array(n).fill(NaN), S=new Float32Array(n).fill(NaN), G=new Float32Array(n).fill(NaN), TW=new Int32Array(n);
+  const towers=[], tix=new Map();
+  const sf = SPD[units.spd]||1, hf = HGT[units.h]||1;
+  for(const r of table.rows){
+    const t = obsTime(r[map.t], map.d!=null? r[map.d]:undefined);
+    const s = map.spd!=null && r[map.spd]!=="" ? +r[map.spd]*sf : NaN, g = map.gst!=null && r[map.gst]!=="" ? +r[map.gst]*sf : NaN;
+    if(t==null || (!isFinite(s) && !isFinite(g))){ bad++; continue; }
+    const id = map.tw!=null ? String(r[map.tw]).trim() : "obs";
+    if(!tix.has(id)){ tix.set(id,towers.length); towers.push(id); }
+    T[k]=t; TW[k]=tix.get(id); S[k]=s; G[k]=g;
+    LA[k]= map.lat!=null ? +r[map.lat] : NaN; LO[k]= map.lon!=null ? +r[map.lon] : NaN; H[k]= map.h!=null && r[map.h]!=="" ? +r[map.h]*hf : NaN;
+    k++;
+  }
+  const ord = [...Array(k).keys()].sort((a,b)=>T[a]-T[b]);
+  const pick=(A,C)=>{ const o=new C(k); ord.forEach((x,i)=>o[i]=A[x]); return o; };
+  const t=pick(T,Float64Array);
+  return {kind, n:k, bad, far:0, t, tw:pick(TW,Int32Array), towers, lat:pick(LA,Float32Array), lon:pick(LO,Float32Array), h:pick(H,Float32Array), spd:pick(S,Float32Array), gst:pick(G,Float32Array), t0:k?t[0]:null, t1:k?t[k-1]:null,
+    hasLL: map.lat!=null && map.lon!=null, hasH: map.h!=null};
+}
+
+/* ---- series per location ---- */
+function strikeSeries(srcId, site){
+  const D = OD.get(srcId); if(!D || site.lat==null) return null;
+  const key = `L|${srcId}|${site.lat}|${site.lon}|${site.r}|${D.n}`;
+  if(CACHE.has(key)) return CACHE.get(key);
+  const t=[], d=[];
+  for(let i=0;i<D.n;i++){ const x = distNM(site.lat,site.lon,D.lat[i],D.lon[i]); if(x<=site.r){ t.push(D.t[i]); d.push(x); } }
+  const out = {t:Float64Array.from(t), d:Float32Array.from(d)}; CACHE.set(key,out); return out;
+}
+function windSeries(srcId, area, metric){
+  const D = OD.get(srcId); if(!D || !area) return null;
+  const twList = (area.towers||"").split(/[\s,;]+/).filter(Boolean).map(x=>x.toUpperCase().replace(/^0+(?=\d)/,""));
+  const key = `W|${srcId}|${JSON.stringify(area)}|${metric}|${D.n}`;
+  if(CACHE.has(key)) return CACHE.get(key);
+  const twOK = D.towers.map(name=>{
+    const nm = String(name).toUpperCase().replace(/^(TWR|TOWER)\s*/,"").replace(/^0+(?=\d)/,"");
+    return twList.length ? twList.includes(nm) : null;
+  });
+  const t=[], v=[], tw=[], h=[];
+  const src = metric==="spd" ? D.spd : D.gst, alt = metric==="spd" ? null : D.spd;
+  for(let i=0;i<D.n;i++){
+    let ok = twOK[D.tw[i]];
+    if(ok==null) ok = D.hasLL && isFinite(D.lat[i]) ? distNM(area.lat,area.lon,D.lat[i],D.lon[i]) <= area.r : !twList.length && !D.hasLL;
+    if(!ok) continue;
+    if(area.maxFt>0 && D.hasH && isFinite(D.h[i]) && D.h[i] > area.maxFt+1) continue;
+    let val = src[i]; if(!isFinite(val) && alt) val = alt[i]; if(!isFinite(val)) continue;
+    t.push(D.t[i]); v.push(val); tw.push(D.towers[D.tw[i]]); h.push(D.h[i]);
+  }
+  const out={t:Float64Array.from(t), v:Float32Array.from(v), tw, h:Float32Array.from(h)}; CACHE.set(key,out); return out;
+}
+function clusters(times, gapMin){
+  const out=[]; const g=gapMin*6e4;
+  for(let i=0;i<times.length;i++){
+    const t=times[i];
+    if(out.length && t - out[out.length-1].t1 <= g){ const c=out[out.length-1]; c.t1=t; c.n++; c.i1=i; }
+    else out.push({t0:t,t1:t,n:1,i0:i,i1:i});
+  }
+  return out;
+}
+const clusterAt = (cl, t) => { let lo=0, hi=cl.length-1, ans=null; while(lo<=hi){ const m=(lo+hi)>>1; if(cl[m].t0<=t){ ans=cl[m]; lo=m+1; } else hi=m-1; } return ans && ans.t1>=t ? ans : null; };
+
+/* ---- tabs ---- */
+const KIND_ORDER = {ltgwatch:0, ltgwarn:1, windwarn:2, windadv:3, other:4};
+const SRC_KIND = {ltgwatch:"lightning", ltgwarn:"lightning", windwarn:"wind", windadv:"wind"};
+function tabList(){
+  const m = new Map();
+  for(const r of DB.values()){ if(r.exercise) continue; if(!m.has(r.product)) m.set(r.product,{key:r.product, kind:r.kind, n:0}); m.get(r.product).n++; }
+  return [...m.values()].sort((a,b)=>(KIND_ORDER[a.kind]-KIND_ORDER[b.kind]) || a.key.localeCompare(b.key));
+}
+function tabRules(tab){
+  const saved = (OC.tabs[tab.key]||{}).rules || {};
+  const thr = (()=>{ const m = tab.key.match(/≥\s*(\d+)/) || tab.key.match(/(\d+)\s*kt/); return m ? +m[1] : null; })();
+  const def = {
+    ltgwatch:{gap:15},
+    ltgwarn:{gap:15, tol:10, clear:15},
+    windwarn:{thr:thr??35, metric:"gst", near:3, gap:60},
+    windadv:{thr:thr??25, metric:/steady/i.test(tab.key)?"spd":"gst", tol:30, gap:60}
+  }[tab.kind] || {};
+  return {...def, ...saved};
+}
+function tabSource(tab){
+  const id = (OC.tabs[tab.key]||{}).source;
+  const s = OC.sources.find(x=>x.id===id && x.kind===SRC_KIND[tab.kind]);
+  return s || null;
+}
+
+/* ---- scoring ---- */
+const OBSOUT = {
+  ...OUT,
+  nodata:{label:"No obs coverage",css:"var(--line)"},
+  nosite:{label:"No location set",css:"var(--line)"},
+  sup:{label:"Supported by obs",css:"var(--hitD)"},
+  unsup:{label:"Not supported",css:"var(--fa)"}
+};
+const bucket = o => HITS.slice(0,2).includes(o) ? "hit" : o==="late" ? "late" : (o==="fa"||o==="fasub") ? "fa" : o;
+function covers(D, a, b){ return D && D.n && a>=D.t0-30*6e4 && b<=D.t1+30*6e4; }
+
+function scoreTab(tab, A){
+  const src = tabSource(tab); const D = src && OD.get(src.id); const R = tabRules(tab);
+  const prods = A.rs.filter(r=>r.product===tab.key);
+  const allP = A.all.filter(r=>r.product===tab.key && (F.stn==="all"||r.stn===F.stn));
+  const res = {tab, src, D, R, rows:[], events:[]};
+  if(!D) return res;
+  const locOf = r => tab.kind.startsWith("ltg") ? OC.sites[r.lk] : OC.areas[r.stn];
+
+  if(tab.kind==="ltgwatch" || tab.kind==="ltgwarn"){
+    for(const r of prods){
+      const site = OC.sites[r.lk];
+      const row = {r, user:r.o, uLead:r.lead};
+      if(!site || site.lat==null){ row.o="nosite"; res.rows.push(row); continue; }
+      const end = endOf(r);
+      if(!covers(D, r.issue, end)){ row.o="nodata"; res.rows.push(row); continue; }
+      const S = strikeSeries(src.id, site), cl = clusters(S.t, R.gap);
+      if(tab.kind==="ltgwatch"){
+        const i = lb(S.t, r.issue);
+        if(i<S.t.length && S.t[i] <= end){
+          const first=S.t[i], c=clusterAt(cl, first);
+          const j=lb(S.t, end+1);
+          row.n = j-i; row.first=first; row.dist=S.d[i];
+          if(c && c.t0 < r.issue){ row.o="late"; row.lead=Math.round((c.t0-r.issue)/6e4); }
+          else { row.lead=Math.round((first-r.issue)/6e4); row.o = row.lead >= (r.dlt??30) ? "hitD" : "hitS"; }
+        } else {
+          row.o="fa";
+          // closest strike to the site while the watch was up, for context
+          let best=Infinity; const a=lb(D.t,r.issue), b=lb(D.t,end+1);
+          for(let k=a;k<b;k++){ const x=distNM(site.lat,site.lon,D.lat[k],D.lon[k]); if(x<best) best=x; }
+          row.closest = isFinite(best)?best:null;
+        }
+      } else {
+        const tol=R.tol*6e4;
+        const i = lb(S.t, r.issue - tol), j = lb(S.t, r.issue + 5*6e4 + 1);
+        if(j>i){
+          row.o="sup";
+          const near = S.t[j-1];
+          const c = clusterAt(cl, near); row.delay = c ? Math.round((r.issue-c.t0)/6e4) : null; row.first = c ? c.t0 : near;
+        } else row.o="unsup";
+        if(r.end!=null){
+          const a=lb(S.t, r.issue), b=lb(S.t, r.end+1);
+          if(b>a){ row.last=S.t[b-1]; row.clear=Math.round((r.end-row.last)/6e4); }
+          const k=lb(S.t, r.end+1); if(k<S.t.length && S.t[k] <= r.end + R.clear*6e4) row.after=S.t[k];
+          row.n=b-a;
+        }
+      }
+      res.rows.push(row);
+    }
+    // events: lightning onsets at each location while data covers
+    const lks = new Set(A.all.filter(r=>r.kind===tab.kind).map(r=>r.lk));
+    for(const lk of lks){
+      const site = OC.sites[lk]; if(!site || site.lat==null) continue;
+      if(F.stn!=="all" && !allP.some(r=>r.lk===lk)) continue;
+      const S = strikeSeries(src.id, site);
+      for(const c of clusters(S.t, R.gap)){
+        if(c.t0 < A.a || c.t0 >= A.b) continue;
+        const prodsHere = allP.filter(r=>r.lk===lk);
+        const ev = {loc:site.name, t0:c.t0, t1:c.t1, n:c.n};
+        if(tab.kind==="ltgwatch"){
+          const w = prodsHere.filter(r=>r.issue<=c.t0 && endOf(r)>=c.t0).sort((x,y)=>x.issue-y.issue)[0];
+          if(w){ ev.o="covered"; ev.lead=Math.round((c.t0-w.issue)/6e4); ev.p=w; }
+          else { const l = prodsHere.find(r=>r.issue>c.t0 && r.issue<=c.t1); if(l){ ev.o="late"; ev.lead=Math.round((c.t0-l.issue)/6e4); ev.p=l; } else ev.o="missed"; }
+        } else {
+          const w = prodsHere.filter(r=>r.issue <= c.t0 + R.tol*6e4 && endOf(r) >= c.t0).sort((x,y)=>x.issue-y.issue)[0];
+          if(w){ ev.o="covered"; ev.lead = -Math.max(0,Math.round((w.issue-c.t0)/6e4)); ev.p=w; }
+          else { const l = prodsHere.find(r=>r.issue>c.t0 && r.issue<=c.t1); if(l){ ev.o="late"; ev.lead=Math.round((c.t0-l.issue)/6e4); ev.p=l; } else ev.o="missed"; }
+        }
+        res.events.push(ev);
+      }
+    }
+  } else if(tab.kind==="windwarn" || tab.kind==="windadv"){
+    const thr=R.thr;
+    for(const r of prods){
+      const area = OC.areas[r.stn]; const row={r, user:r.o, uLead:r.lead};
+      if(!area){ row.o="nosite"; res.rows.push(row); continue; }
+      const end=endOf(r);
+      if(!covers(D, r.issue, end)){ row.o="nodata"; res.rows.push(row); continue; }
+      const W = windSeries(src.id, area, R.metric);
+      const ex = []; for(let k=0;k<W.t.length;k++) if(W.v[k]>=thr) ex.push(W.t[k]);
+      const cl = clusters(ex, R.gap);
+      if(tab.kind==="windwarn"){
+        const a=lb(W.t,r.issue), b=lb(W.t,end+1);
+        if(b<=a){ row.o="nodata"; res.rows.push(row); continue; }
+        let mx=-1, mi=-1, fi=-1;
+        for(let k=a;k<b;k++){ if(W.v[k]>mx){mx=W.v[k];mi=k;} if(fi<0 && W.v[k]>=thr) fi=k; }
+        row.max=mx; row.maxT=W.t[mi]; row.maxTw=W.tw[mi]; row.maxH=W.h[mi]; row.n=b-a;
+        if(fi>=0){
+          const c = clusterAt(cl, W.t[fi]); row.first=W.t[fi];
+          if(c && c.t0 < r.issue){ row.o="late"; row.lead=Math.round((c.t0-r.issue)/6e4); }
+          else { row.lead=Math.round((W.t[fi]-r.issue)/6e4); row.o = row.lead >= (r.dlt??30) ? "hitD" : "hitS"; }
+        } else row.o = mx >= thr - R.near ? "fasub" : "fa";
+      } else {
+        const tol=R.tol*6e4;
+        const a=lb(W.t, r.issue - tol), b=lb(W.t, r.issue + 5*6e4 + 1);
+        let mx=-1, mi=-1; for(let k=a;k<b;k++) if(W.v[k]>mx){mx=W.v[k];mi=k;}
+        row.max = mi>=0?mx:null; row.maxTw = mi>=0?W.tw[mi]:null; row.maxT = mi>=0?W.t[mi]:null; row.maxH = mi>=0?W.h[mi]:null;
+        if(mi>=0 && mx>=thr){ row.o="sup"; const ei = lb(ex, r.issue+5*6e4+1)-1; const c = ei>=0 ? clusterAt(cl, ex[ei]) : null; row.delay = c ? Math.round((r.issue-c.t0)/6e4) : null; }
+        else row.o = b>a ? "unsup" : "nodata";
+        if(r.end!=null){ const ea=lb(ex, r.issue), eb=lb(ex, r.end+1); if(eb>ea){ row.last=ex[eb-1]; row.clear=Math.round((r.end-row.last)/6e4); } }
+      }
+      res.rows.push(row);
+    }
+    const stns = new Set(allP.map(r=>r.stn));
+    for(const stn of stns){
+      const area = OC.areas[stn]; if(!area) continue;
+      const W = windSeries(src.id, area, R.metric);
+      const ex=[], exv=[]; for(let k=0;k<W.t.length;k++) if(W.v[k]>=thr){ ex.push(W.t[k]); exv.push(k); }
+      const prodsHere = allP.filter(r=>r.stn===stn);
+      for(const c of clusters(ex, R.gap)){
+        if(c.t0 < A.a || c.t0 >= A.b) continue;
+        let mx=0, tw=""; for(let i=c.i0;i<=c.i1;i++){ const k=exv[i]; if(W.v[k]>mx){ mx=W.v[k]; tw=W.tw[k]; } }
+        const ev = {loc:area.name, t0:c.t0, t1:c.t1, n:c.n, max:mx, tw};
+        const tol = tab.kind==="windadv" ? R.tol*6e4 : 0;
+        const w = prodsHere.filter(r=>r.issue<=c.t0+tol && endOf(r)>=c.t0).sort((x,y)=>x.issue-y.issue)[0];
+        if(w){ ev.o="covered"; ev.lead = tab.kind==="windadv" ? -Math.max(0,Math.round((w.issue-c.t0)/6e4)) : Math.round((c.t0-w.issue)/6e4); ev.p=w; }
+        else { const l = prodsHere.find(r=>r.issue>c.t0 && r.issue<=c.t1); if(l){ ev.o="late"; ev.lead=Math.round((c.t0-l.issue)/6e4); ev.p=l; } else ev.o="missed"; }
+        res.events.push(ev);
+      }
+    }
+  }
+  res.events.sort((a,b)=>a.t0-b.t0);
+  return res;
+}
+
+/* ---- rendering ---- */
+let VIEW = "user"; let OTAB = null; let OSHOW = {dis:false};
+function setView(v){
+  VIEW=v;
+  $("#vt-user").setAttribute("aria-selected", String(v==="user")); $("#vt-obs").setAttribute("aria-selected", String(v==="obs"));
+  $("#app").hidden = v!=="user"; $("#methodUser").hidden = v!=="user"; $("#obs").hidden = v!=="obs";
+  if(v==="obs") renderObs(LAST);
+}
+$("#vt-user").addEventListener("click",()=>setView("user"));
+$("#vt-obs").addEventListener("click",()=>setView("obs"));
+
+function srcCard(s){
+  const D = OD.get(s.id), P = PENDING.get(s.id);
+  const span = D && D.n ? `${D.n.toLocaleString()} ${s.kind==="lightning"?"strikes":"obs"} · ${fZ(D.t0)} to ${fZ(D.t1)}` : (s.meta && s.meta.n ? "Data not in this browser yet; reload the file." : "No data loaded");
+  const extra = D ? [D.bad?`${D.bad.toLocaleString()} unreadable rows skipped`:"", D.far?`${D.far.toLocaleString()} strikes over 60 NM away dropped`:"", s.kind==="wind"&&D.towers?`${D.towers.length} tower${D.towers.length===1?"":"s"}`:""].filter(Boolean).join(" · ") : "";
+  let h = `<div class="src" data-src="${s.id}">
+    <h3><span class="kind">${s.kind}</span><input value="${esc(s.name)}" data-act="rename" aria-label="Source name"></h3>
+    <div class="meta">${esc(span)}${extra?`<br>${esc(extra)}`:""}${s.file?`<br>File: ${esc(s.file)}`:""}${s.url?`<br>URL: ${esc(s.url)}`:""}</div>
+    <div class="row">
+      <button type="button" class="btn sm primary" data-act="file">Load file</button>
+      <button type="button" class="btn sm" data-act="url">${s.url?"Refresh URL":"Load from URL"}</button>
+      <button type="button" class="btn sm" data-act="tmpl">Template</button>
+      <button type="button" class="btn sm danger" data-act="del">Remove</button>
+    </div>`;
+  if(P){
+    const map = P.map, cols = P.table.cols;
+    const sample = P.table.rows[0]||[];
+    h += `<div class="mapf"><div style="grid-column:1/-1;font-size:12.5px;color:var(--ink-2)"><b>${esc(P.name)}</b>: ${P.table.rows.length.toLocaleString()} rows. Check which column holds each field, then import.</div>`;
+    for(const [k,lab,req] of FIELDS[s.kind]){
+      h += `<label class="f">${lab}${req?" *":""}<select data-map="${k}"><option value="">—</option>${cols.map((c,i)=>`<option value="${i}"${map[k]===i?" selected":""}>${esc(c)}${sample[i]!=null&&sample[i]!==""?` (${esc(String(sample[i]).slice(0,18))})`:""}</option>`).join("")}</select></label>`;
+    }
+    if(s.kind==="wind") h += `<label class="f">Speed units<select data-unit="spd">${Object.keys(SPD).map(u=>`<option${P.units.spd===u?" selected":""}>${u}</option>`).join("")}</select></label><label class="f">Height units<select data-unit="h">${Object.keys(HGT).map(u=>`<option${P.units.h===u?" selected":""}>${u}</option>`).join("")}</select></label>`;
+    h += `<div class="row" style="grid-column:1/-1"><button type="button" class="btn sm primary" data-act="import">Import</button><button type="button" class="btn sm" data-act="cancel">Cancel</button><span class="err" data-err style="color:var(--bad-ink);font-size:12.5px"></span></div></div>`;
+  }
+  return h + `</div>`;
+}
+
+function locPanel(){
+  const sites = Object.entries(OC.sites).sort((a,b)=>a[1].name.localeCompare(b[1].name));
+  const areas = Object.entries(OC.areas);
+  return `<details class="panel" id="obsLoc"${Object.values(OC.sites).some(s=>s.lat==null)?"":""}>
+  <summary style="cursor:pointer;font-weight:600">Verification locations</summary>
+  <p class="sub" style="margin-top:8px">Lightning is matched to a location by distance from its centre point. Winds are matched to each station's area by tower ID (if you list them) or by distance, up to the height limit. <b>The starting coordinates are approximate; replace them with the 45 WS warning-circle centres.</b></p>
+  <div class="grid2" style="margin:0">
+  <div><h3 style="font-size:13px;margin:0 0 6px">Lightning locations</h3><div class="tablewrap"><table class="loctbl"><thead><tr><th>Location</th><th>Lat</th><th>Lon</th><th>Radius NM</th></tr></thead><tbody>
+  ${sites.map(([k,s])=>`<tr data-site="${esc(k)}"><td title="${esc(s.note||"")}">${esc(s.name)}${s.lat==null?` <span class="flag">set</span>`:""}</td><td><input type="number" step="0.0001" data-f="lat" value="${s.lat??""}"></td><td><input type="number" step="0.0001" data-f="lon" value="${s.lon??""}"></td><td><input type="number" step="0.5" min="0" data-f="r" value="${s.r}"></td></tr>`).join("")}
+  </tbody></table></div></div>
+  <div><h3 style="font-size:13px;margin:0 0 6px">Wind areas</h3><div class="tablewrap"><table class="loctbl"><thead><tr><th>Station</th><th>Lat</th><th>Lon</th><th>Radius NM</th><th>Max ft</th><th>Tower IDs</th></tr></thead><tbody>
+  ${areas.map(([k,a])=>`<tr data-area="${esc(k)}"><td>${esc(k)} · ${esc(a.name)}</td><td><input type="number" step="0.0001" data-f="lat" value="${a.lat}"></td><td><input type="number" step="0.0001" data-f="lon" value="${a.lon}"></td><td><input type="number" step="0.5" min="0" data-f="r" value="${a.r}"></td><td><input type="number" step="10" min="0" data-f="maxFt" value="${a.maxFt}" title="0 = no height limit"></td><td><input type="text" data-f="towers" value="${esc(a.towers||"")}" placeholder="e.g. 0397, 0393, 0021" style="min-width:150px"></td></tr>`).join("")}
+  </tbody></table></div><p class="sub" style="margin-top:6px">Max ft 0 = no limit. Tower IDs, when set, override the radius.</p></div>
+  </div>
+  <div class="row" style="margin-top:10px"><button type="button" class="btn sm" data-act="exportcfg">Export settings</button><button type="button" class="btn sm" data-act="importcfg">Import settings</button><button type="button" class="btn sm" data-act="resetloc">Reset locations</button><input type="file" id="cfgFile" accept=".json" hidden></div>
+  </details>`;
+}
+
+function rulesBar(tab, R, src){
+  const srcs = OC.sources.filter(s=>s.kind===SRC_KIND[tab.kind]);
+  const num = (k,lab,step,title) => `<label class="f"${title?` title="${esc(title)}"`:""}>${lab}<input type="number" step="${step}" data-rule="${k}" value="${R[k]}"></label>`;
+  let h = `<div class="rules"><label class="f" style="min-width:200px">Verify against<select data-act="pick">${srcs.length?"":`<option value="">No ${SRC_KIND[tab.kind]} source added yet</option>`}<option value="">— choose a source —</option>${srcs.map(s=>`<option value="${s.id}"${src&&src.id===s.id?" selected":""}>${esc(s.name)}</option>`).join("")}</select></label>`;
+  if(tab.kind==="ltgwatch") h += num("gap","New event after gap (min)",5,"Strikes closer together than this belong to one event");
+  if(tab.kind==="ltgwarn") h += num("tol","Strike within (min) before issue",1,"A Phase 2 is supported if a strike was inside the radius this many minutes before issue (or up to 5 min after)") + num("clear","Flag strike within (min) after cancel",1) + num("gap","New event after gap (min)",5);
+  if(tab.kind==="windwarn") h += num("thr","Threshold (kt)",1) + `<label class="f">Wind measure<select data-rule="metric"><option value="gst"${R.metric==="gst"?" selected":""}>Peak / gust</option><option value="spd"${R.metric==="spd"?" selected":""}>Mean / steady</option></select></label>` + num("near","Sub-threshold within (kt)",1,"A false alarm whose peak was within this many knots of threshold is shown as sub-threshold") + num("gap","New event after gap (min)",15);
+  if(tab.kind==="windadv") h += num("thr","Threshold (kt)",1) + `<label class="f">Wind measure<select data-rule="metric"><option value="gst"${R.metric==="gst"?" selected":""}>Peak / gust</option><option value="spd"${R.metric==="spd"?" selected":""}>Mean / steady</option></select></label>` + num("tol","Obs within (min) before issue",5) + num("gap","New event after gap (min)",15);
+  return h + `</div>`;
+}
+
+function chipO(o){ const x=OBSOUT[o]||{label:o,css:"var(--line)"}; return `<span class="chip"><i class="sw${x.hatch?" hatch":""}" style="background:${x.css}"></i>${x.label}</span>`; }
+const EVO = {covered:["Covered","var(--hitD)"], late:["Late","var(--late)"], missed:["Missed","var(--fa)"]};
+const chipE = o => `<span class="chip"><i class="sw" style="background:${EVO[o][1]}"></i>${EVO[o][0]}</span>`;
+const mm = m => m==null ? "—" : Math.round(m);
+
+function tabBody(S){
+  const {tab, src, D, R} = S;
+  const head = rulesBar(tab, R, src);
+  if(!SRC_KIND[tab.kind]) return `<p class="note">No automatic verifier exists for “${esc(tab.key)}” yet. Tell me what system observes it and this tab can be wired up.</p>`;
+  if(!src) return head + `<div class="empty">Point this tab at a ${SRC_KIND[tab.kind]} data source. Add one under <b>Observation data sources</b>, then choose it above.</div>`;
+  if(!D) return head + `<div class="empty">“${esc(src.name)}” has no data loaded in this browser. Use <b>Load file</b> on that source.</div>`;
+  const rows = S.rows, ev = S.events;
+  const cnt = k => rows.filter(x=>x.o===k).length;
+  const nosite = new Set(rows.filter(x=>x.o==="nosite").map(x=>x.r.loc));
+  const scored = rows.filter(x=>!["nodata","nosite"].includes(x.o));
+  let h = head;
+  if(nosite.size) h += `<p class="note">Add coordinates for ${[...nosite].map(esc).join(", ")} under <b>Verification locations</b> to score ${nosite.size===1?"it":"them"}.</p>`;
+  if(rows.length && !scored.length) h += `<p class="note">None of this period's products fall inside the data's time span (${fZ(D.t0)} to ${fZ(D.t1)}).</p>`;
+  const evC = ev.filter(e=>e.o==="covered").length, evL = ev.filter(e=>e.o==="late").length, evM = ev.filter(e=>e.o==="missed").length;
+  const forecast = tab.kind==="ltgwatch" || tab.kind==="windwarn";
+  if(forecast){
+    const hits = cnt("hitD")+cnt("hitS")+cnt("late"), fas = cnt("fa")+cnt("fasub");
+    const leads = ev.filter(e=>e.o==="covered").map(e=>e.lead);
+    const both = scored.filter(x=>["hit","late","fa"].includes(bucket(x.user)));
+    const agree = both.filter(x=>bucket(x.user)===bucket(x.o)).length;
+    const pod = ev.length ? evC/ev.length : null, far = ratio(fas, hits+fas), csi = (hits+fas+evM) ? hits/(hits+fas+evM) : null;
+    h += `<div class="tiles">
+      ${tile("POD (obs)", pf(pod), "", `${evC} of ${ev.length} ${tab.kind==="ltgwatch"?"lightning":"wind"} events had a product in effect · ${evL} late · ${evM} missed`)}
+      ${tile("FAR (obs)", pf(far), "", `${fas} of ${hits+fas} scored products saw no event${cnt("fasub")?` (${cnt("fasub")} sub-threshold)`:""}`)}
+      ${tile("CSI (obs)", pf(csi), "", `hits ÷ (hits + misses + false alarms)`)}
+      ${tile("Lead to event onset", leads.length?mm(median(leads)):"—", "min median", `${pf(leads.length?leads.filter(x=>x>=30).length/leads.length:null)} of covered events had ≥30 min`)}
+      ${tile("Agrees with user verification", pf(ratio(agree,both.length)), "", `${agree} of ${both.length} products scored the same (hit / late / false alarm)`)}
+    </div>`;
+    // agreement matrix
+    const ub = ["hit","late","fa","unver"], ob = ["hit","late","fa"], lab={hit:"Hit",late:"Late",fa:"False alarm",unver:"Not verified"};
+    const M = {}; scored.forEach(x=>{ const u=bucket(x.user), o=bucket(x.o); M[u+"|"+o]=(M[u+"|"+o]||0)+1; });
+    h += `<div class="grid2"><section class="panel"><h2>User vs observation</h2><p class="sub">Rows: what was entered in Bifrost. Columns: what the observations show. The diagonal is agreement.</p>
+      <div class="tablewrap"><table class="agree"><thead><tr><th>User \\ Obs</th>${ob.map(o=>`<th class="n">${lab[o]}</th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
+      ${ub.map(u=>{ const tot=ob.reduce((s,o)=>s+(M[u+"|"+o]||0),0); if(!tot && u==="unver") return ""; return `<tr><th>${lab[u]}</th>${ob.map(o=>{ const v=M[u+"|"+o]||0; return `<td class="n ${u===o?"hl":(v&&u!=="unver"?"off":"")}">${v}</td>`; }).join("")}<td class="n">${tot}</td></tr>`; }).join("")}
+      </tbody></table></div></section>
+      <section class="panel"><h2>Event lead time</h2><p class="sub">Minutes from issue to the start of each observed event that had a product in effect.</p>${evLeadBars(ev)}</section></div>`;
+  } else {
+    const sup=cnt("sup"), uns=cnt("unsup");
+    const delays = rows.filter(x=>x.delay!=null).map(x=>x.delay), clears = rows.filter(x=>x.clear!=null).map(x=>x.clear);
+    const after = rows.filter(x=>x.after).length;
+    h += `<div class="tiles">
+      ${tile("Supported by obs", pf(ratio(sup,sup+uns)), "", `${sup} of ${sup+uns} issuances had a qualifying ${tab.kind==="ltgwarn"?"strike":"observation"}`)}
+      ${tile("Events warned", pf(ev.length?evC/ev.length:null), "", `${evC} of ${ev.length} observed events · ${evL} late · ${evM} missed`)}
+      ${tile("Issue delay", delays.length?mm(median(delays)):"—", "min median", "event start to product issue")}
+      ${tile(tab.kind==="ltgwarn"?"All-clear time":"End lag", clears.length?mm(median(clears)):"—", "min median", tab.kind==="ltgwarn"?`last strike to cancel${after?` · ${after} had lightning within ${R.clear} min after cancel`:""}`:"last qualifying obs to cancel")}
+    </div>`;
+  }
+  // products table
+  let pr = scored.concat(rows.filter(x=>x.o==="nodata"||x.o==="nosite"));
+  if(OSHOW.dis && forecast) pr = pr.filter(x=>!["nodata","nosite"].includes(x.o) && bucket(x.user)!==bucket(x.o) && x.user!=="unver");
+  if(OSHOW.dis && !forecast) pr = pr.filter(x=>x.o==="unsup" || x.after);
+  pr.sort((a,b)=>b.r.issue-a.r.issue);
+  const evid = x => {
+    if(x.o==="nosite"||x.o==="nodata") return "";
+    if(tab.kind==="ltgwatch") return x.first ? `${x.n} strike${x.n===1?"":"s"} within radius · first ${fZ(x.first)} at ${x.dist.toFixed(1)} NM` : x.closest!=null ? `none within radius · closest ${x.closest.toFixed(1)} NM` : x.o==="fa" ? "no strikes in window" : "";
+    if(tab.kind==="ltgwarn") return [x.first?`event began ${fZ(x.first)}`:"no strike near issue", x.last?`last strike ${fHM(x.last)}`:"", x.after?`<span class="flag">strike ${fHM(x.after)} after cancel</span>`:""].filter(Boolean).join(" · ");
+    if(x.max!=null) return `max ${Math.round(x.max)} kt${x.maxTw&&x.maxTw!=="obs"?` · ${esc(x.maxTw)}`:""}${isFinite(x.maxH)?` @ ${Math.round(x.maxH)} ft`:""}${x.maxT?` · ${fHM(x.maxT)}`:""}${x.first&&tab.kind==="windwarn"?` · first ≥${R.thr} kt ${fHM(x.first)}`:""}`;
+    return "";
+  };
+  h += `<section class="panel"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Products</h2>
+    <label style="font-size:13px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-act="dis"${OSHOW.dis?" checked":""}>${forecast?"Only where user and obs disagree":"Only unsupported or flagged"}</label></div>
+    <p class="sub">${pr.length} shown. Click a row for the product text.</p>
+    <div class="tablewrap" style="max-height:480px;overflow:auto"><table><thead><tr><th>Issued</th><th>Stn</th><th>No.</th><th>Location</th>${forecast?`<th>User verification</th>`:""}<th>Observations</th>${forecast?`<th class="n">User lead</th><th class="n">Obs lead</th>`:`<th class="n">Delay</th><th class="n">${tab.kind==="ltgwarn"?"All clear":"End lag"}</th>`}<th>Evidence</th></tr></thead><tbody>
+    ${pr.slice(0,800).map(x=>{ const off = forecast && !["nodata","nosite"].includes(x.o) && x.user!=="unver" && bucket(x.user)!==bucket(x.o);
+      return `<tr class="case" data-id="${esc(x.r.id)}"><td class="mono">${fZ(x.r.issue)}</td><td>${esc(x.r.stn)}</td><td class="mono">${esc(x.r.num)}</td><td>${esc(x.r.loc)}</td>${forecast?`<td>${chipO(x.user)}</td>`:""}<td>${chipO(x.o)}${off?` <span class="flag">differs</span>`:""}</td>
+      ${forecast?`<td class="n">${x.uLead??""}</td><td class="n">${x.lead??""}</td>`:`<td class="n">${x.delay??""}</td><td class="n">${x.clear??""}</td>`}<td class="wrap">${evid(x)}</td></tr>`; }).join("")}
+    </tbody></table></div></section>`;
+  // events table
+  h += `<section class="panel"><h2>Observed events</h2><p class="sub">Each ${tab.kind.startsWith("ltg")?`run of strikes inside a location's radius (a gap over ${R.gap} min starts a new event)`:`run of observations at or above ${R.thr} kt (a gap over ${R.gap} min starts a new event)`}, and whether a product was in effect when it began.</p>
+    ${ev.length?`<div class="tablewrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Event start</th><th>Ended</th><th>Location</th><th class="n">${tab.kind.startsWith("ltg")?"Strikes":"Obs ≥ thr"}</th>${tab.kind.startsWith("wind")?`<th class="n">Max kt</th><th>Tower</th>`:""}<th>Coverage</th><th class="n">${forecast?"Lead":"Delay"}</th><th>Product</th></tr></thead><tbody>
+    ${ev.slice().reverse().slice(0,800).map(e=>`<tr${e.p?` class="case" data-id="${esc(e.p.id)}"`:""}><td class="mono">${fZ(e.t0)}</td><td class="mono">${fHM(e.t1)}</td><td>${esc(e.loc)}</td><td class="n">${e.n}</td>${tab.kind.startsWith("wind")?`<td class="n">${Math.round(e.max)}</td><td>${esc(e.tw)}</td>`:""}<td>${chipE(e.o)}</td><td class="n">${e.lead==null?"":forecast?e.lead:-e.lead}</td><td>${e.p?`${esc(e.p.stn)} <span class="mono">${esc(e.p.num)}</span>`:""}</td></tr>`).join("")}
+    </tbody></table></div>`:`<p class="sub">No events in this period.</p>`}</section>`;
+  return h;
+}
+function evLeadBars(ev){
+  const L = ev.filter(e=>e.o!=="missed").map(e=>e.lead);
+  const bins = [["late",-Infinity,0],["0–14",0,15],["15–29",15,30],["30–59",30,60],["60–119",60,120],["120+",120,Infinity]];
+  const miss = ev.filter(e=>e.o==="missed").length;
+  if(!L.length && !miss) return `<p class="sub">No events in this period.</p>`;
+  const c = bins.map(b=>L.filter(x=>x>=b[1]&&x<b[2]).length).concat([miss]);
+  const labs = bins.map(b=>b[0]).concat(["missed"]);
+  const max = Math.max(1,...c), W=460,H=220,Lm=30,B=34,T=18,R=6, bw=(W-Lm-R)/labs.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lead time of observed events">`;
+  const step = niceStep(max);
+  for(let v=0; v<=max; v+=step){ const y=H-B-(H-B-T)*v/max; s+=`<line class="grid" x1="${Lm}" x2="${W-R}" y1="${y}" y2="${y}"/><text x="${Lm-5}" y="${y+4}" font-size="11" text-anchor="end">${v}</text>`; }
+  c.forEach((n,i)=>{ const h=(H-B-T)*n/max, x=Lm+i*bw+5, w=bw-10, y=H-B-h;
+    const col = i===0?"var(--late)":i===labs.length-1?"var(--fa)":i>=3?"var(--hitD)":"var(--hitS)";
+    if(h>0) s+=`<path d="M${x},${H-B} v-${Math.max(0,h-4)} a4,4 0 0 1 4,-4 h${w-8} a4,4 0 0 1 4,4 v${Math.max(0,h-4)} z" fill="${col}"/>`;
+    s+=`<rect x="${Lm+i*bw}" y="${T}" width="${bw}" height="${H-B-T}" fill="transparent" data-tip="<b>${labs[i]}</b><br>${n} event${n===1?"":"s"}"/>`;
+    if(n) s+=`<text x="${x+w/2}" y="${y-4}" font-size="11" text-anchor="middle" style="pointer-events:none">${n}</text>`;
+    s+=`<text x="${x+w/2}" y="${H-B+15}" font-size="11" text-anchor="middle">${labs[i]}</text>`; });
+  return s+`</svg><div class="legend" style="margin-top:6px"><span><i class="sw" style="background:var(--hitD)"></i>≥30 min</span><span><i class="sw" style="background:var(--hitS)"></i>under 30 min</span><span><i class="sw" style="background:var(--late)"></i>issued after onset</span><span><i class="sw" style="background:var(--fa)"></i>no product</span></div>`;
+}
+
+function renderObs(A){
+  const box = $("#obs");
+  if(VIEW!=="obs") return;
+  if(!A){ box.innerHTML = `<div class="panel empty">Load a Bifrost WWA export above first; observation verification scores those same products.</div>`; return; }
+  const tabs = tabList();
+  if(!OTAB || !tabs.some(t=>t.key===OTAB)) OTAB = tabs[0] && tabs[0].key;
+  const tab = tabs.find(t=>t.key===OTAB);
+  const inRange = new Map(); A.rs.forEach(r=>inRange.set(r.product,(inRange.get(r.product)||0)+1));
+  let h = `<p class="note">Scores each product against raw observations instead of what was entered in Bifrost. Point each tab at a data source; files are read in this browser and stored only on this computer.</p>
+  <section class="panel"><h2>Observation data sources</h2><p class="sub">Add a source for each system (for example MERLIN strikes or WINDS towers), then load an export from it as CSV or JSON. A URL works only if that system allows browser access from this site; otherwise download the file and load it.</p>
+    <div class="srcs">${OC.sources.map(srcCard).join("") || `<p class="sub">No sources yet.</p>`}</div>
+    <div class="row" style="margin-top:10px"><button type="button" class="btn" data-act="addsrc" data-kind="lightning">Add lightning source</button><button type="button" class="btn" data-act="addsrc" data-kind="wind">Add wind source</button><input type="file" id="obsFile" accept=".csv,.txt,.json,.tsv,.dat" hidden></div>
+  </section>
+  ${locPanel()}
+  <div class="ptabs" role="tablist" aria-label="WWA types">${tabs.map(t=>{ const src=tabSource(t); return `<button type="button" role="tab" data-tab="${esc(t.key)}" aria-selected="${t.key===OTAB}">${esc(t.key)}<span class="cnt">${inRange.get(t.key)||0}${src?"":" · no source"}</span></button>`; }).join("")}</div>
+  <div role="tabpanel">${tab ? tabBody(scoreTab(tab, A)) : ""}</div>
+  <details class="panel method"><summary>How observation scoring works</summary><ul>
+    <li><b>Lightning watches.</b> Hit if a strike falls inside the location's radius between issue and expiry or cancel. Lead = first strike − issue, measured against each criterion's desired lead. <em>Late</em> if that lightning was already going when the watch was issued. False alarm if no strike fell inside the radius.</li>
+    <li><b>Phase 2 warnings.</b> Supported if a strike was inside the radius shortly before issue. Issue delay = issue − start of that lightning event. All-clear = cancel − last strike; strikes soon after cancel are flagged.</li>
+    <li><b>Wind warnings.</b> Hit if any tower in the station's area, at or below the height limit, reached the threshold while the warning was valid. False alarms within the sub-threshold margin are shown as sub-threshold.</li>
+    <li><b>Wind advisories</b> are checked for a qualifying observation near issue, for issue delay, and for how long they stayed up after the last qualifying obs.</li>
+    <li><b>Events and misses.</b> Strikes or exceedances are grouped into events (a gap longer than the tab's setting starts a new one). An event is <em>covered</em> if a product was in effect when it began, <em>late</em> if one was issued during it, and <em>missed</em> otherwise. POD = covered ÷ events.</li>
+    <li>Products outside the loaded data's time span show as "No obs coverage" and are left out of the scores.</li>
+  </ul></details>`;
+  box.innerHTML = h;
+}
+
+/* ---- obs view events ---- */
+let fileTarget = null;
+const obsBox = $("#obs");
+obsBox.addEventListener("click", async e=>{
+  const t = e.target.closest("[data-act],[data-tab]"); if(!t) return;
+  if(t.dataset.tab){ OTAB=t.dataset.tab; OSHOW.dis=false; renderObs(LAST); return; }
+  const act = t.dataset.act, card = t.closest("[data-src]"), id = card && card.dataset.src, s = id && OC.sources.find(x=>x.id===id);
+  if(act==="addsrc"){
+    const kind=t.dataset.kind, n=OC.sources.filter(x=>x.kind===kind).length;
+    const ns = {id:"s"+Date.now().toString(36), kind, name: kind==="lightning" ? (n?"Lightning source "+(n+1):"MERLIN strikes") : (n?"Wind source "+(n+1):"WINDS towers")};
+    OC.sources.push(ns);
+    // first source of a kind is assigned to every tab of that kind with no source yet
+    tabList().forEach(tb=>{ if(SRC_KIND[tb.kind]===kind && !tabSource(tb)) OC.tabs[tb.key]={...(OC.tabs[tb.key]||{}), source:ns.id}; });
+    saveCfg(); renderObs(LAST); return;
+  }
+  if(act==="file"){ fileTarget=id; $("#obsFile").click(); return; }
+  if(act==="url"){
+    const u = prompt("URL that returns this source's CSV or JSON:", s.url||""); if(!u) return;
+    s.url=u; saveCfg();
+    try{ const r = await fetch(u, {cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status); stage(s, await r.text(), u.split("/").pop()||u); }
+    catch(err){ alert(`Couldn't read that URL (${err.message}). Most protected systems block requests from other websites; download the file and use Load file instead.`); }
+    return;
+  }
+  if(act==="tmpl"){
+    const txt = s.kind==="lightning" ? "time_utc,lat,lon\n2026-10-16T17:15:04Z,28.5101,-80.6532\n2026-10-16T17:16:41Z,28.4987,-80.6420\n"
+      : "time_utc,tower,lat,lon,height_ft,speed_kt,gust_kt\n2026-10-17T18:15:00Z,0397,28.6060,-80.6720,259,28,37\n2026-10-17T18:15:00Z,0021,28.4810,-80.5660,204,24,33\n";
+    download(`${s.kind}-template.csv`, txt); return;
+  }
+  if(act==="del"){
+    if(!confirm(`Remove “${s.name}” and its stored data from this browser?`)) return;
+    OC.sources = OC.sources.filter(x=>x.id!==id); OD.delete(id); PENDING.delete(id); IDB.del(id);
+    Object.values(OC.tabs).forEach(v=>{ if(v.source===id) v.source=null; }); saveCfg(); renderObs(LAST); return;
+  }
+  if(act==="cancel"){ PENDING.delete(id); renderObs(LAST); return; }
+  if(act==="import"){
+    const P = PENDING.get(id);
+    const req = FIELDS[s.kind].filter(f=>f[2]).map(f=>f[0]);
+    const miss = req.filter(k=>P.map[k]==null);
+    const errEl = card.querySelector("[data-err]");
+    if(miss.length){ errEl.textContent = "Choose a column for: "+miss.map(k=>FIELDS[s.kind].find(f=>f[0]===k)[1]).join(", "); return; }
+    if(s.kind==="wind" && P.map.spd==null && P.map.gst==null){ errEl.textContent = "Choose a speed or gust column."; return; }
+    errEl.textContent = "Importing…";
+    setTimeout(async ()=>{
+      const D = buildData(s.kind, P.table, P.map, P.units);
+      if(!D.n){ errEl.textContent = "No usable rows; check the time and position columns."; return; }
+      OD.set(id, D); CACHE.clear(); PENDING.delete(id);
+      s.file = P.name; s.meta = {n:D.n, t0:D.t0, t1:D.t1}; s.map = P.map; s.units = P.units; saveCfg();
+      const ok = await IDB.set(id, D);
+      if(!ok) $("#status").innerHTML = `<span class="err">Observation data for “${esc(s.name)}” is kept only until this page is closed (browser storage unavailable).</span>`;
+      renderObs(LAST);
+    }, 20);
+    return;
+  }
+  if(act==="exportcfg"){ const c = {...OC, sources: OC.sources.map(({id,kind,name,url,map,units})=>({id,kind,name,url,map,units}))}; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(c,null,1)],{type:"application/json"})); a.download="wwa-obs-settings.json"; a.click(); return; }
+  if(act==="importcfg"){ $("#cfgFile").click(); return; }
+  if(act==="resetloc"){ if(confirm("Reset all lightning locations and wind areas to the starting values?")){ const d=defaultCfg(); OC.sites=d.sites; OC.areas=d.areas; CACHE.clear(); saveCfg(); renderObs(LAST); } return; }
+});
+obsBox.addEventListener("change", async e=>{
+  const t=e.target;
+  if(t.id==="obsFile"){ const f=t.files[0]; t.value=""; const s=OC.sources.find(x=>x.id===fileTarget); if(f&&s){ try{ stage(s, await f.text(), f.name); }catch(err){ alert(`Couldn't read ${f.name}: ${err.message}`); } } return; }
+  if(t.id==="cfgFile"){ const f=t.files[0]; t.value=""; if(!f) return; try{ const c=JSON.parse(await f.text()); if(c.sites) OC.sites={...OC.sites,...c.sites}; if(c.areas) OC.areas={...OC.areas,...c.areas}; if(c.tabs) OC.tabs={...OC.tabs,...c.tabs}; if(Array.isArray(c.sources)) c.sources.forEach(s=>{ if(!OC.sources.some(x=>x.id===s.id)) OC.sources.push(s); }); CACHE.clear(); saveCfg(); renderObs(LAST); }catch(err){ alert("That isn't a settings file from this page."); } return; }
+  const card=t.closest("[data-src]");
+  if(card && t.dataset.act==="rename"){ const s=OC.sources.find(x=>x.id===card.dataset.src); s.name=t.value.trim()||s.name; saveCfg(); renderObs(LAST); return; }
+  if(card && (t.dataset.map!=null || t.dataset.unit!=null)){ const P=PENDING.get(card.dataset.src); if(t.dataset.map!=null){ if(t.value==="") delete P.map[t.dataset.map]; else P.map[t.dataset.map]=+t.value; } else P.units[t.dataset.unit]=t.value; return; }
+  const tr=t.closest("tr[data-site],tr[data-area]");
+  if(tr){
+    const o = tr.dataset.site ? OC.sites[tr.dataset.site] : OC.areas[tr.dataset.area]; const f=t.dataset.f;
+    if(f==="towers") o.towers=t.value; else o[f] = t.value==="" ? (f==="lat"||f==="lon" ? null : 0) : +t.value;
+    CACHE.clear(); saveCfg(); renderObs(LAST); return;
+  }
+  const tab = tabList().find(x=>x.key===OTAB);
+  if(t.dataset.act==="pick"){ OC.tabs[OTAB]={...(OC.tabs[OTAB]||{}), source:t.value||null}; saveCfg(); renderObs(LAST); return; }
+  if(t.dataset.rule){ const cur=OC.tabs[OTAB]||{}; const rules={...(cur.rules||{})}; rules[t.dataset.rule] = t.type==="number" ? +t.value : t.value; OC.tabs[OTAB]={...cur, rules}; saveCfg(); renderObs(LAST); return; }
+  if(t.dataset.act==="dis"){ OSHOW.dis=t.checked; renderObs(LAST); return; }
+});
+function stage(s, text, name){
+  const table = parseTable(text, name);
+  const prev = s.map && s.map.t!=null && s.map.t < table.cols.length ? s.map : null;
+  PENDING.set(s.id, {name, table, map: prev ? {...prev} : guessMap(s.kind, table.cols), units: s.units || {spd:"kt", h:"ft"}});
+  renderObs(LAST);
+}
+// restore stored observation data, then redraw
+(async ()=>{
+  for(const s of OC.sources){ const D = await IDB.get(s.id); if(D) OD.set(s.id, D); }
+  if(OC.sources.length && VIEW==="obs") renderObs(LAST);
+})();
 
 render();
 })();
