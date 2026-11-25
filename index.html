@@ -10,6 +10,7 @@
   --bg:#f4f5f7; --panel:#ffffff; --panel-2:#f8f9fb; --ink:#141a22; --ink-2:#4a5463; --muted:#6b7584;
   --line:#dde1e7; --line-2:#eceff3; --accent:#1f5fa8; --accent-ink:#ffffff; --focus:#2a78d6;
   --hitD:#2a78d6; --hitS:#1baf7a; --late:#eda100; --fa:#e34948;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
   --watch-band:#cde2fb; --p2:#2a78d6; --wwarn-band:#fbd9c9; --wadv:#eb6834;
   --flag-bg:#fff4e0; --flag-ink:#7a4b00; --ok-ink:#1d6b2f; --bad-ink:#a5221f;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
@@ -21,6 +22,7 @@
     --bg:#0f1318; --panel:#171c23; --panel-2:#1c222a; --ink:#e7ebf0; --ink-2:#b4bdc9; --muted:#8c97a5;
     --line:#2b333e; --line-2:#222932; --accent:#5f9de0; --accent-ink:#0b1622; --focus:#5f9de0;
     --hitD:#3987e5; --hitS:#199e70; --late:#c98500; --fa:#d03b3b;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
     --watch-band:#1d3b61; --p2:#5598e7; --wwarn-band:#4a2a1b; --wadv:#d95926;
     --flag-bg:#3a2c12; --flag-ink:#f2c56b; --ok-ink:#6fd18a; --bad-ink:#f08a86;
   }
@@ -30,6 +32,7 @@
   --bg:#0f1318; --panel:#171c23; --panel-2:#1c222a; --ink:#e7ebf0; --ink-2:#b4bdc9; --muted:#8c97a5;
   --line:#2b333e; --line-2:#222932; --accent:#5f9de0; --accent-ink:#0b1622; --focus:#5f9de0;
   --hitD:#3987e5; --hitS:#199e70; --late:#c98500; --fa:#d03b3b;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
   --watch-band:#1d3b61; --p2:#5598e7; --wwarn-band:#4a2a1b; --wadv:#d95926;
   --flag-bg:#3a2c12; --flag-ink:#f2c56b; --ok-ink:#6fd18a; --bad-ink:#f08a86;
 }
@@ -90,6 +93,13 @@ label.f{display:inline-flex;flex-direction:column;gap:2px;font-size:12px;color:v
 .tablewrap,.panel{max-width:100%}
 .grid2{margin-bottom:14px}
 
+.tod2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:900px){.tod2{grid-template-columns:1fr}}
+.tod2>div{min-width:0}
+.tod2 h3{margin:0 0 2px;font-size:14px}
+details.tbl{margin-top:6px;font-size:13px}
+details.tbl summary{cursor:pointer;color:var(--ink-2)}
+details.tbl table td,details.tbl table th{padding:3px 8px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--ink-2);margin:0 0 8px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
@@ -382,7 +392,7 @@ $("#clear").addEventListener("click",()=>{
 });
 
 /* ---------- filters ---------- */
-const F = { month:"latest", from:"", to:"", stn:"all", day:null, leadKind:"ltgwatch", q:"", out:"all" };
+const F = { month:"latest", from:"", to:"", stn:"all", day:null, leadKind:"ltgwatch", q:"", out:"all", tz:"utc", todKind:"all" };
 function range(all){
   if(F.from || F.to){
     const a = F.from ? Date.parse(F.from+"T00:00:00Z") : -Infinity;
@@ -732,6 +742,72 @@ $("#expScore").addEventListener("click",()=>{
 });
 const tag = () => F.from||F.to ? `${F.from||"start"}_${F.to||"end"}` : (F.month==="latest" ? (LAST&&LAST.rs.length?monKey(LAST.rs[0].issue):"latest") : F.month);
 
+/* ---------- time of day ---------- */
+const ETF = new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",hourCycle:"h23"});
+const hourOf = t => F.tz==="et" ? (+ETF.format(new Date(t)))%24 : new Date(t).getUTCHours();
+const hLab = h => pad(h) + (F.tz==="et" ? "L" : "Z");
+const tzName = () => F.tz==="et" ? "Eastern local (EST/EDT)" : "UTC";
+const KSER = {ltgwatch:{label:"Lightning watch (Phase 1)",css:"var(--s1)"}, ltgwarn:{label:"Lightning warning (Phase 2)",css:"var(--s2)"}, windwarn:{label:"Wind warning",css:"var(--s3)"}, windadv:{label:"Wind advisory",css:"var(--s4)"}, other:{label:"Other",css:"var(--s5)"}};
+function todControls(withKind, A){
+  const tz = `<label class="f">Hours in<select data-act="tz"><option value="utc"${F.tz==="utc"?" selected":""}>UTC (Z)</option><option value="et"${F.tz==="et"?" selected":""}>Eastern local (L)</option></select></label>`;
+  if(!withKind) return tz;
+  const ks = Object.keys(KSER).filter(k=>A.rs.some(r=>r.kind===k));
+  return `<label class="f">Product<select data-act="todk"><option value="all">All products</option>${ks.map(k=>`<option value="${k}"${F.todKind===k?" selected":""}>${KSER[k].label}</option>`).join("")}</select></label>` + tz;
+}
+/* items: [{t, k}] ; S: series map {k:{label,css,hatch}} in fixed order */
+function hourChart(items, S, opt){
+  const keys = Object.keys(S).filter(k=>items.some(x=>x.k===k));
+  if(!items.length) return `<p class="sub">${opt.empty}</p>`;
+  const H24 = Array.from({length:24},()=>({}));
+  items.forEach(x=>{ const h=hourOf(x.t); H24[h][x.k]=(H24[h][x.k]||0)+1; });
+  const tot = H24.map(o=>keys.reduce((a,k)=>a+(o[k]||0),0));
+  const max = Math.max(...tot), step = niceStep(max), top = Math.ceil(max/step)*step;
+  const W=560,H=210,L=30,R=6,T=10,B=30, bw=(W-L-R)/24, sy=v=>(H-B-T)*v/top;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.aria)}">${hatchDefs()}`;
+  for(let v=0; v<=top; v+=step){ const y=H-B-sy(v); s+=`<line class="grid" x1="${L}" x2="${W-R}" y1="${y}" y2="${y}"/><text x="${L-5}" y="${y+4}" font-size="11" text-anchor="end">${v}</text>`; }
+  H24.forEach((o,h)=>{
+    const x=L+h*bw+2, w=bw-4; let y=H-B;
+    const segs = keys.filter(k=>o[k]);
+    segs.forEach((k,j)=>{
+      const hh=sy(o[k]), gap=j?2:0, sh=Math.max(0,hh-gap), last=j===segs.length-1;
+      const fill = S[k].hatch ? "url(#hatchFA)" : S[k].css; const yt=y-hh;
+      s += last && sh>4 ? `<path d="M${x},${yt+gap+sh} v-${sh-4} a4,4 0 0 1 4,-4 h${w-8} a4,4 0 0 1 4,4 v${sh-4} z" fill="${fill}"/>` : `<rect x="${x}" y="${yt}" width="${w}" height="${sh}" fill="${fill}"/>`;
+      y -= hh;
+    });
+    const tipTxt = `<b>${hLab(h)}–${hLab((h+1)%24)}</b> · ${tot[h]} ${opt.unit}${tot[h]===1?"":"s"} (${pct(tot[h],items.length)})${segs.length?"<br>"+segs.map(k=>`${esc(S[k].label)}: <b>${o[k]}</b>`).join("<br>"):""}`;
+    s += `<rect x="${L+h*bw}" y="${T}" width="${bw}" height="${H-B-T}" fill="transparent" data-tip="${esc(tipTxt)}"/>`;
+    if(h%3===0) s += `<text x="${L+h*bw+bw/2}" y="${H-B+14}" font-size="11" text-anchor="middle">${pad(h)}</text>`;
+  });
+  s += `<line class="axis" x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}"/><text x="${(W+L)/2}" y="${H-3}" font-size="11" text-anchor="middle">hour of day (${F.tz==="et"?"Eastern local":"UTC"})</text></svg>`;
+  // busiest 3-hour window (wraps midnight)
+  let bi=0, bv=-1; for(let h=0;h<24;h++){ const v=tot[h]+tot[(h+1)%24]+tot[(h+2)%24]; if(v>bv){bv=v;bi=h;} }
+  const note = `<p class="sub" style="margin:4px 0 0">${items.length} ${opt.unit}s · busiest 3 h: <b>${hLab(bi)}–${hLab((bi+3)%24)}</b> with ${bv} (${pct(bv,items.length)})${opt.extra?" · "+opt.extra:""}</p>`;
+  const rate = opt.rate ? opt.rate : null;
+  const table = `<details class="tbl"><summary>Show table</summary><div class="tablewrap"><table><thead><tr><th>Hour</th>${keys.map(k=>`<th class="n">${esc(S[k].label)}</th>`).join("")}<th class="n">Total</th>${rate?`<th class="n">${esc(rate.label)}</th>`:""}</tr></thead><tbody>
+    ${H24.map((o,h)=>tot[h]?`<tr><td class="mono">${hLab(h)}–${hLab((h+1)%24)}</td>${keys.map(k=>`<td class="n">${o[k]||""}</td>`).join("")}<td class="n"><b>${tot[h]}</b></td>${rate?`<td class="n">${rate.fn(o)}</td>`:""}</tr>`:"").join("")}
+    </tbody></table></div></details>`;
+  return (keys.length>1 ? `<div class="legend">${keys.map(k=>`<span><i class="sw${S[k].hatch?" hatch":""}" style="background:${S[k].css}"></i>${esc(S[k].label)}</span>`).join("")}</div>` : "") + s + note + table;
+}
+function hitRate(o){ const h=(o.hitD||0)+(o.hitS||0)+(o.late||0), f=(o.fa||0)+(o.fasub||0); return h+f ? pct(h,h+f) : "—"; }
+function todUser(A){
+  const placeholder = new Set(A.qc.filter(q=>q.flag==="Placeholder event time").map(q=>q.r.id));
+  const one = F.todKind!=="all" && A.rs.some(r=>r.kind===F.todKind);
+  const pool = one ? A.rs.filter(r=>r.kind===F.todKind) : A.rs;
+  const outS = {}; Object.keys(OUT).forEach(k=>outS[k]=OUT[k]);
+  const S = one ? outS : KSER;
+  const kOf = r => one ? (r.o||"unver") : r.kind;
+  const iss = pool.map(r=>({t:r.issue, k:kOf(r)}));
+  const met = pool.filter(r=>r.occ!=null && HITS.includes(r.o) && !placeholder.has(r.id)).map(r=>({t:r.occ, k:kOf(r)}));
+  const skipped = pool.filter(r=>placeholder.has(r.id)).length;
+  const fc = one && (F.todKind==="ltgwatch"||F.todKind==="windwarn");
+  return `<div class="tod2">
+    <div><h3>Issued by hour</h3><p class="sub">Every ${one?esc(KSER[F.todKind].label.replace(/^\w/,c=>c.toLowerCase())):"product"} by the hour it was issued${one?", colored by Bifrost outcome":""}. Hover a bar for counts.</p>
+      ${hourChart(iss, S, {unit:"product", aria:"Products issued by hour of day", empty:"No products in this period.", rate: fc?{label:"Hit rate",fn:hitRate}:null})}</div>
+    <div><h3>Verification met by hour</h3><p class="sub">Hour of the verifying event (Bifrost occurred time) for every hit${one?"":", colored by product"}.</p>
+      ${hourChart(met, S, {unit:"event", aria:"Verifying events by hour of day", empty:"No hits with an event time in this period.", extra: skipped?`${skipped} placeholder midnight time${skipped===1?"":"s"} left out`:""})}</div>
+  </div>`;
+}
+
 /* ---------- render ---------- */
 function tile(k,v,unit,d){ return `<div class="tile"><div class="k">${k}</div><div class="v">${v}${unit?`<small>${unit}</small>`:""}</div><div class="d">${d}</div></div>`; }
 function render(){
@@ -779,6 +855,7 @@ function render(){
     <section class="panel"><h2>Lead time of hits</h2><p class="sub">Minutes from issue to the verifying event.</p><div id="leadBox">${leadChart(A)}</div></section>
   </div>
   <section class="panel"><h2>Scorecard</h2><p class="sub">Shaded rows are product totals. Hover column headers for definitions.</p>${scorecard(A)}</section>
+  <section class="panel" id="todUser"><div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:6px"><div><h2 style="margin:0">Time of day</h2><p class="sub" style="margin:2px 0 0">When products go out, and when the weather that verified them actually happened. Hours in ${tzName()}.</p></div><div class="row noprint">${todControls(true, A)}</div></div><div id="todBox">${todUser(A)}</div></section>
   <section class="panel"><h2>Day timeline</h2><p class="sub">Pick a day (UTC; shading = products issued). Hover any bar for the product.</p><div id="tl">${timeline(A)}</div></section>
   <div class="grid2">
     <section class="panel"><h2>Observed products</h2><p class="sub">Issued on observation, so counted by time in effect rather than scored.</p>${obsTable(A)}</section>
@@ -804,6 +881,12 @@ function render(){
   const fo = $("#fOut"); if(fo) fo.onchange = e=>{ F.out=e.target.value; $("#caseBox").innerHTML=caseTable(LAST); };
 }
 function bindLead(){ const lk=$("#leadKind"); lk.onchange = e=>{ F.leadKind=e.target.value; $("#leadBox").innerHTML=leadChart(LAST); bindLead(); }; }
+
+document.addEventListener("change", e=>{
+  const t=e.target; if(!t.dataset) return;
+  if(t.dataset.act==="tz"){ F.tz=t.value; if(LAST) render(); return; }
+  if(t.dataset.act==="todk"){ F.todKind=t.value; const b=$("#todBox"); if(b&&LAST) b.innerHTML=todUser(LAST); return; }
+});
 
 // expand case rows; QC rows jump to the case
 document.addEventListener("click", e=>{
@@ -1395,6 +1478,22 @@ function tabBody(S){
       ${tile("Issue delay", delays.length?mm(median(delays)):"—", "min median", "event start to product issue")}
       ${tile(tab.kind==="ltgwarn"?"All-clear time":"End lag", clears.length?mm(median(clears)):"—", "min median", tab.kind==="ltgwarn"?`last strike to cancel${after?` · ${after} had lightning within ${R.clear} min after cancel`:""}`:"last qualifying obs to cancel")}
     </div>`;
+  }
+  // time of day
+  {
+    const ok = rows.filter(x=>!["nodata","nosite"].includes(x.o));
+    const S = {}; (forecast?["hitD","hitS","late","fa","fasub"]:["sup","unsup"]).forEach(k=>S[k]=OBSOUT[k]);
+    const metS = forecast ? {hitD:OBSOUT.hitD, hitS:OBSOUT.hitS, late:OBSOUT.late} : {sup:OBSOUT.sup};
+    const met = ok.filter(x=>x.first!=null && (forecast ? HITS.includes(x.o) : x.o==="sup")).map(x=>({t:x.first, k:x.o}));
+    const evS = {covered:{label:"Covered",css:EVO.covered[1]}, late:{label:"Late",css:EVO.late[1]}, missed:{label:"Missed",css:EVO.missed[1]}};
+    const what = tab.kind.startsWith("ltg") ? `first ${R.count==="cg"?"CG strike":R.count==="cc"?"CC detection":"CG or CC detection"}` : `first observation ≥ ${R.thr} kt`;
+    h += `<section class="panel"><div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:6px"><div><h2 style="margin:0">Time of day</h2><p class="sub" style="margin:2px 0 0">Scored by observations. Hours in ${tzName()}.</p></div><div class="row noprint">${todControls(false)}</div></div>
+      <div class="tod2">
+        <div><h3>Issued by hour</h3><p class="sub">Products by issue hour, colored by observation outcome.</p>${hourChart(ok.map(x=>({t:x.r.issue,k:x.o})), S, {unit:"product", aria:"Products issued by hour, observation outcome", empty:"No scored products in this period.", rate: forecast?{label:"Hit rate",fn:hitRate}:{label:"Supported",fn:o=>{const a=o.sup||0,b=o.unsup||0;return a+b?pct(a,a+b):"—";}}})}</div>
+        <div><h3>Verification met by hour</h3><p class="sub">Hour of the ${esc(what)} that verified each ${forecast?"hit":"supported product"}.</p>${hourChart(met, metS, {unit:"event", aria:"Observed verification time by hour", empty:"No verified products with an observation time in this period."})}</div>
+      </div>
+      ${ev.length?`<h3 style="margin:16px 0 2px;font-size:14px">Observed event onset by hour</h3><p class="sub">When each observed event began, and whether a product was already in effect. Shows the hours where events slip through.</p><div style="max-width:600px">${hourChart(ev.map(e=>({t:e.t0,k:e.o})), evS, {unit:"event", aria:"Observed event onset by hour and coverage", empty:"", rate:{label:"Covered",fn:o=>pct(o.covered||0,(o.covered||0)+(o.late||0)+(o.missed||0))}})}</div>`:""}
+    </section>`;
   }
   // products table
   let pr = scored.concat(rows.filter(x=>x.o==="nodata"||x.o==="nosite"));
